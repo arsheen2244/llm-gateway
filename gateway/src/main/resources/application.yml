@@ -1,0 +1,11 @@
+spring:
+  application:
+    name: llm-gateway
+  threads:
+    virtual:
+      # Each request runs on a virtual thread, so blocking code (waiting on the
+      # provider, writing SSE frames) is cheap even with thousands of open streams.
+      enabled: true
+
+server:
+  port: 8080
