@@ -9,3 +9,27 @@ spring:
 
 server:
   port: 8080
+
+gateway:
+  # Provider instances. "type" picks the adapter (the protocol); the rest says
+  # where this instance lives. API keys come only from environment variables.
+  providers:
+    openai:
+      type: openai
+      base-url: https://api.openai.com
+      api-key: ${OPENAI_API_KEY:}
+    mock-openai:
+      type: openai
+      base-url: ${MOCK_PROVIDER_URL:http://localhost:8081}
+      api-key: mock-key   # not a secret: the mock only checks that a key is present
+
+  # Ordered rules, first match wins. A trailing * matches any suffix.
+  routes:
+    - model-pattern: "mock-*"
+      provider: mock-openai
+    - model-pattern: "gpt-*"
+      provider: openai
+
+  timeouts:
+    connect: 5s
+    read: 60s

@@ -69,3 +69,77 @@ the scenario that proves the gateway never leaves a client hanging.
 
 **Note:** the simulated exception captures no stack trace (writable stack trace off),
 so forced failures in load tests don't flood the logs.
+
+## 6. The gateway's internal data model is the OpenAI wire format
+
+**Chosen:** the records in `api.dto` (`ChatCompletionRequest`, `ChatCompletionResponse`,
+…) are the public API *and* what flows through the pipeline. Adapters translate from
+them to each provider's format, and the OpenAI adapter barely translates at all.
+
+**Rejected:**
+- *A separate "canonical" model:* a third layer of mapping code with no payoff while
+  the public API is OpenAI-shaped. If we ever add a second public API format, that is
+  when a canonical model earns its keep.
+- *Forwarding raw bytes:* the lowest latency, but interceptors (cache, cost tracking)
+  need to read the content.
+
+**Consequence:** fields outside the supported subset (`tools`, `n`, `logprobs`, …) are
+dropped silently. This is a known week-1 limit. A stricter gateway would reject
+unknown fields with 400 so clients are never surprised.
+
+## 7. Adapter = protocol, provider = instance
+
+**Chosen:** config separates the protocol (`type: openai`) from the instance (base URL
+and key). One `OpenAiAdapter` bean serves both the real OpenAI API and the mock.
+
+**Rejected:** a dedicated `MockAdapter`. Then no test would ever run the real
+adapters' HTTP, serialization and error-parsing code.
+
+**Also:** keys enter config only through `${ENV_VAR:}` placeholders. Records that hold
+keys override `toString()` to mask them, so a stray log line can't leak one. Startup
+fails fast if a route points to an unknown provider or a provider has an unknown type.
+A provider with no key fails per request (503 `provider_not_configured`), so the
+gateway still runs with only the mock configured.
+
+## 8. Routing: ordered list, first match wins
+
+**Chosen:** `routes` is an ordered list of `model-pattern → provider`. A pattern is an
+exact name or a prefix ending in `*`. Unknown model → 404 `model_not_found` (OpenAI's
+own behaviour).
+
+**Rejected:** longest-match or regex routing. Both are more powerful, but you can't
+tell which rule applies just by reading the file. With an ordered list the answer is
+always "the first one that matches", the same rule firewalls and nginx locations use.
+
+## 9. Error mapping
+
+| Provider said | Client gets | Why |
+|---|---|---|
+| 400 / 404 / 422 | same status, provider's message | The client's mistake, and the client can fix it |
+| 401 / 403 | 502, generic message | *Our* key is wrong. The provider's message can include part of the key, so it is hidden |
+| 429 | 429 | Tells the client to back off |
+| 503 / 529 (Anthropic "overloaded") | 503 | Temporary unavailability |
+| other 5xx | 502 | Bad gateway: our upstream failed |
+| timeout | 504 | Gateway timeout |
+| connection failure / unparseable reply | 502 | |
+| no API key configured | 503 | |
+
+All errors use OpenAI's `{"error": {message, type, param, code}}` shape, so
+OpenAI client libraries can parse them. The `code` field holds gateway-specific
+values such as `provider_timeout` that tell clients what went wrong.
+
+`ProviderException.isRetryable()` (429, 5xx, timeouts, I/O) exists now but is unused.
+It is the seam for week 3's retries and failover.
+
+## 10. Interceptor chain (the seam for weeks 2–5)
+
+**Chosen:** a `ChatInterceptor` interface run by an immutable `InterceptorChain`, the
+same pattern as a servlet `FilterChain`. Each interceptor can act before or after the
+provider call, or short-circuit it. Spring injects all interceptor beans in `@Order`
+order. Week 1 has none in production; a unit test proves ordering and short-circuiting.
+
+**Rejected:** a servlet `Filter` or Spring `HandlerInterceptor`. Those run before the
+body is parsed and before routing, so they can't see the model, the provider, or
+(later) token counts and response chunks, which rate limiting, caching and cost
+tracking all need. Servlet filters are still the right place for HTTP-level concerns
+such as request IDs (step 7).
