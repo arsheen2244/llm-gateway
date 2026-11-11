@@ -28,6 +28,7 @@ import jakarta.servlet.http.HttpServletResponse;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RestController;
 
 /** Fake {@code POST /v1/chat/completions} in OpenAI's format, normal and streaming. */
@@ -53,8 +54,14 @@ public class OpenAiMockController {
      * response has already been handled.
      */
     @PostMapping("/v1/chat/completions")
-    public ResponseEntity<?> chatCompletions(@RequestBody ChatRequest request,
-                                             HttpServletResponse response) throws IOException {
+    public ResponseEntity<?> chatCompletions(
+            @RequestHeader(name = "Authorization", required = false) String authorization,
+            @RequestBody ChatRequest request,
+            HttpServletResponse response) throws IOException {
+        // Like the real API: no bearer token, no answer. Catches adapters that forget auth.
+        if (authorization == null || !authorization.startsWith("Bearer ")) {
+            return error(401);
+        }
         Scenario scenario = scenarios.resolve(request.model());
         Pause.millis(properties.latencyMs());
 

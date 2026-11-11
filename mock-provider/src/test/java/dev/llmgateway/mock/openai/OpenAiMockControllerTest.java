@@ -97,10 +97,24 @@ class OpenAiMockControllerTest {
         assertThat(data).noneMatch(line -> line.contains("[DONE]"));
     }
 
+    @Test
+    void missingBearerTokenIsRejected() throws Exception {
+        HttpRequest request = HttpRequest.newBuilder(URI.create("http://localhost:" + port + "/v1/chat/completions"))
+                .header("Content-Type", "application/json")
+                .POST(HttpRequest.BodyPublishers.ofString(body("mock-gpt", false)))
+                .build();
+
+        HttpResponse<String> response = http.send(request, HttpResponse.BodyHandlers.ofString());
+
+        assertThat(response.statusCode()).isEqualTo(401);
+        assertThat(json.readTree(response.body()).at("/error/type").asText()).isEqualTo("authentication_error");
+    }
+
     private <T> HttpResponse<T> post(String body, HttpResponse.BodyHandler<T> handler)
             throws IOException, InterruptedException {
         HttpRequest request = HttpRequest.newBuilder(URI.create("http://localhost:" + port + "/v1/chat/completions"))
                 .header("Content-Type", "application/json")
+                .header("Authorization", "Bearer test-key")
                 .POST(HttpRequest.BodyPublishers.ofString(body))
                 .build();
         return http.send(request, handler);
