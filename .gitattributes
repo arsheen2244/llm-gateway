@@ -1,0 +1,5 @@
+# Store text files with LF line endings so shell scripts (mvnw) run on Linux CI,
+# but keep Windows batch files as CRLF.
+* text=auto eol=lf
+*.cmd text eol=crlf
+*.bat text eol=crlf
