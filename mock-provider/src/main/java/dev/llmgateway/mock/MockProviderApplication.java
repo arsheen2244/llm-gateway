@@ -4,6 +4,7 @@ import java.util.Map;
 
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.boot.context.properties.ConfigurationPropertiesScan;
 
 /**
  * A fake LLM provider. It answers in the same wire formats as OpenAI and Anthropic,
@@ -15,6 +16,7 @@ import org.springframework.boot.autoconfigure.SpringBootApplication;
  * can be overridden with environment variables.
  */
 @SpringBootApplication
+@ConfigurationPropertiesScan
 public class MockProviderApplication {
 
     public static void main(String[] args) {
