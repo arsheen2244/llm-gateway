@@ -18,17 +18,30 @@ gateway:
       type: openai
       base-url: https://api.openai.com
       api-key: ${OPENAI_API_KEY:}
+    anthropic:
+      type: anthropic
+      base-url: https://api.anthropic.com
+      api-key: ${ANTHROPIC_API_KEY:}
     mock-openai:
       type: openai
       base-url: ${MOCK_PROVIDER_URL:http://localhost:8081}
       api-key: mock-key   # not a secret: the mock only checks that a key is present
+    mock-anthropic:
+      type: anthropic
+      base-url: ${MOCK_PROVIDER_URL:http://localhost:8081}
+      api-key: mock-key
 
   # Ordered rules, first match wins. A trailing * matches any suffix.
+  # Specific patterns must come before general ones ("mock-claude-*" before "mock-*").
   routes:
+    - model-pattern: "mock-claude-*"
+      provider: mock-anthropic
     - model-pattern: "mock-*"
       provider: mock-openai
     - model-pattern: "gpt-*"
       provider: openai
+    - model-pattern: "claude-*"
+      provider: anthropic
 
   timeouts:
     connect: 5s

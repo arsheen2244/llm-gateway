@@ -14,7 +14,7 @@ import dev.llmgateway.gateway.provider.ChunkSink;
 import dev.llmgateway.gateway.provider.ProviderAdapter;
 import dev.llmgateway.gateway.provider.ProviderException;
 import dev.llmgateway.gateway.provider.ProviderException.Reason;
-import dev.llmgateway.gateway.provider.SseEventReader;
+import dev.llmgateway.gateway.provider.ProviderStreams;
 import dev.llmgateway.gateway.provider.UpstreamErrors;
 import dev.llmgateway.gateway.routing.ProviderConfig;
 import org.springframework.http.HttpStatusCode;
@@ -101,32 +101,18 @@ public class OpenAiAdapter implements ProviderAdapter {
     }
 
     /**
-     * Reads OpenAI's SSE stream and pushes each chunk to the sink. The body is
-     * always closed on the way out. Closing it before the stream has ended makes
-     * HttpURLConnection drop the socket, so if the client has gone away we stop
-     * receiving (and paying for) tokens nobody will read.
+     * Reads OpenAI's SSE stream and pushes each chunk to the sink until
+     * {@code [DONE]}. See {@link ProviderStreams#consume} for how breaks are detected.
      */
     void consumeStream(String provider, InputStream body, ChunkSink sink) throws IOException {
-        StreamProgress progress = new StreamProgress();
-        try (body) {
-            SseEventReader.read(body, (event, data) -> {
-                progress.events++;
-                if (DONE.equals(data)) {
-                    progress.done = true;
-                    return;
-                }
+        boolean[] done = {false}; // array so the lambda can set it
+        ProviderStreams.consume(provider, body, (event, data) -> {
+            if (DONE.equals(data)) {
+                done[0] = true;
+            } else {
                 sink.accept(toChunk(provider, data));
-            });
-        } catch (IOException e) {
-            if (progress.events == 0) {
-                throw e; // nothing arrived yet: an ordinary I/O failure
             }
-            throw ProviderException.of(provider, Reason.STREAM_INTERRUPTED,
-                    "Stream broke after it started: " + e.getMessage(), e);
-        }
-        if (!progress.done) {
-            throw ProviderException.of(provider, Reason.STREAM_INTERRUPTED, "Stream ended without [DONE]", null);
-        }
+        }, () -> done[0]);
     }
 
     private ChatCompletionChunk toChunk(String provider, String data) {
@@ -141,11 +127,5 @@ public class OpenAiAdapter implements ProviderAdapter {
         } catch (JsonProcessingException e) {
             throw ProviderException.of(provider, Reason.INVALID_RESPONSE, "Unparseable stream chunk", e);
         }
-    }
-
-    /** Mutable counters updated from inside the listener lambda. */
-    private static final class StreamProgress {
-        int events;
-        boolean done;
     }
 }

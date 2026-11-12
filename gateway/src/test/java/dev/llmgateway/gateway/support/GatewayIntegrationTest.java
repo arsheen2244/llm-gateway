@@ -22,7 +22,7 @@ import org.springframework.test.context.DynamicPropertySource;
  */
 @SpringBootTest(
         webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
-        properties = {"gateway.providers.openai.api-key="})
+        properties = {"gateway.providers.openai.api-key=", "gateway.providers.anthropic.api-key="})
 public abstract class GatewayIntegrationTest {
 
     @LocalServerPort
@@ -36,6 +36,7 @@ public abstract class GatewayIntegrationTest {
     @DynamicPropertySource
     static void pointProvidersAtMock(DynamicPropertyRegistry registry) {
         registry.add("gateway.providers.mock-openai.base-url", MockProviderServer::baseUrl);
+        registry.add("gateway.providers.mock-anthropic.base-url", MockProviderServer::baseUrl);
     }
 
     protected <T> HttpResponse<T> post(String body, HttpResponse.BodyHandler<T> handler)

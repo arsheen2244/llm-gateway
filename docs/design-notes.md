@@ -212,3 +212,23 @@ When the mock answered with an *error*, Spring refused to write a JSON body for 
 `Accept` and returned 406 instead. Both the mock and the gateway's
 `ApiExceptionHandler` now set `Content-Type: application/json` explicitly on errors,
 as real providers do.
+
+## 13. Anthropic adapter: what is translated, and what deliberately isn't
+
+| OpenAI concept | Anthropic concept | How the adapter handles it |
+|---|---|---|
+| `system` messages in the list | top-level `system` field | All system messages are extracted and joined with blank lines, in order |
+| `max_tokens` optional | `max_tokens` **required** | Defaults to 4096 (safe for every current Claude model) |
+| `stop` | `stop_sequences` | Renamed |
+| `temperature` 0–2 | `temperature` 0–1 | **Passed through unchanged.** Rescaling would silently change what the client asked for. An out-of-range value gets Anthropic's own 400, which reaches the client with its message |
+| `finish_reason` | `stop_reason` | `end_turn`/`stop_sequence` → `stop`, `max_tokens` → `length`, `tool_use` → `tool_calls`, `refusal` → `content_filter`, unknown → `stop` |
+| `prompt_tokens` | `input_tokens` + cache tokens | Anthropic counts prompt-cache tokens separately. They are added in, so week 5's cost accounting sees everything the model processed |
+| Uniform `chat.completion.chunk` stream | Named events (`message_start`, `content_block_delta`, `message_delta`, `message_stop`, `error`, `ping`) | `AnthropicStreamTranslator`, a small per-stream state machine |
+| `Authorization: Bearer` | `x-api-key` + `anthropic-version` | Version pinned to `2023-06-01`, the version this adapter was written against |
+
+**Structure:** the adapter keeps HTTP separate from translation. `AnthropicMapper` and
+`AnthropicStreamTranslator` do no I/O, so they are covered by plain unit tests. The
+adapter itself is covered by integration tests against the mock's Anthropic endpoint.
+`ProviderStreams.consume` holds the stream-reading rules both adapters share (always
+close the body, and decide when a stream counts as broken). Each adapter only says what
+its "finished" marker is: `[DONE]` for OpenAI, `message_stop` for Anthropic.
