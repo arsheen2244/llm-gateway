@@ -11,7 +11,8 @@ import dev.llmgateway.gateway.routing.ProviderConfig;
  * in {@link ProviderConfig}.
  *
  * <p>Implementations translate between the gateway's OpenAI-shaped records and
- * the provider's own format, and throw only {@link ProviderException}.
+ * the provider's own format, and throw only {@link ProviderException}, except
+ * that exceptions thrown by the {@link ChunkSink} pass straight through.
  */
 public interface ProviderAdapter {
 
@@ -19,4 +20,13 @@ public interface ProviderAdapter {
     String type();
 
     ChatCompletionResponse complete(ProviderConfig provider, ChatCompletionRequest request);
+
+    /**
+     * Streams the response into {@code sink}, blocking until the provider finishes.
+     * Returns normally only if the stream completed properly. A stream that
+     * breaks or ends early throws {@link ProviderException} with reason
+     * STREAM_INTERRUPTED. If the sink throws (the client went away), the
+     * adapter closes the provider connection and lets the exception propagate.
+     */
+    void stream(ProviderConfig provider, ChatCompletionRequest request, ChunkSink sink);
 }

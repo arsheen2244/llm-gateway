@@ -29,6 +29,7 @@ import dev.llmgateway.mock.behavior.ScenarioResolver;
 import dev.llmgateway.mock.behavior.SimulatedConnectionDropException;
 import dev.llmgateway.mock.sse.SseWriter;
 import jakarta.servlet.http.HttpServletResponse;
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -142,7 +143,9 @@ public class AnthropicMockController {
     }
 
     private static ResponseEntity<ErrorBody> error(int status, String message) {
-        return ResponseEntity.status(status).body(new ErrorBody("error", new ErrorDetail(errorType(status), message)));
+        // Explicit content type: real providers send JSON errors even to "Accept: text/event-stream".
+        return ResponseEntity.status(status).contentType(MediaType.APPLICATION_JSON)
+                .body(new ErrorBody("error", new ErrorDetail(errorType(status), message)));
     }
 
     /** Anthropic's documented error types. 529 means "overloaded". */

@@ -1,29 +1,30 @@
 package dev.llmgateway.gateway.config;
 
-import java.net.http.HttpClient;
-
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
-import org.springframework.http.client.JdkClientHttpRequestFactory;
+import org.springframework.http.client.SimpleClientHttpRequestFactory;
 import org.springframework.web.client.RestClient;
 
 /**
- * The one HTTP client used to call providers. Sharing it means sharing one
- * connection pool, so repeated calls to the same provider reuse open
- * connections instead of doing a new TCP and TLS handshake every time.
+ * The one HTTP client used to call providers.
+ *
+ * <p>It is built on {@code HttpURLConnection} (Spring's "simple" factory)
+ * because its read timeout is the maximum <em>silence between bytes</em>.
+ * A long, healthy stream is never cut off, but a stalled one is. The JDK
+ * HttpClient-based factory applies its read timeout to the whole response
+ * instead, which would kill any stream longer than the timeout. That was
+ * measured, not assumed (design note 11).
+ *
+ * <p>HttpURLConnection keeps idle connections in the JDK's keep-alive cache,
+ * so repeated calls to a provider reuse open connections.
  */
 @Configuration
 public class HttpClientConfig {
 
     @Bean
     RestClient providerRestClient(RestClient.Builder builder, GatewayProperties properties) {
-        HttpClient jdkClient = HttpClient.newBuilder()
-                // HTTP/1.1 keeps streaming behaviour simple and predictable;
-                // HTTP/2 multiplexing adds nothing for a few long-lived streams.
-                .version(HttpClient.Version.HTTP_1_1)
-                .connectTimeout(properties.timeouts().connect())
-                .build();
-        JdkClientHttpRequestFactory factory = new JdkClientHttpRequestFactory(jdkClient);
+        SimpleClientHttpRequestFactory factory = new SimpleClientHttpRequestFactory();
+        factory.setConnectTimeout(properties.timeouts().connect());
         factory.setReadTimeout(properties.timeouts().read());
         return builder.requestFactory(factory).build();
     }

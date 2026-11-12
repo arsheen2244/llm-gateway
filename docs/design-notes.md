@@ -143,3 +143,72 @@ body is parsed and before routing, so they can't see the model, the provider, or
 (later) token counts and response chunks, which rate limiting, caching and cost
 tracking all need. Servlet filters are still the right place for HTTP-level concerns
 such as request IDs (step 7).
+
+## 11. HTTP client for provider calls: HttpURLConnection, chosen by measurement
+
+**Chosen:** Spring's `SimpleClientHttpRequestFactory` (built on `HttpURLConnection`),
+with a connect timeout and a *read* timeout. The read timeout is the maximum silence
+between bytes.
+
+**What I planned first, and why it changed:** the plan said `JdkClientHttpRequestFactory`
+(built on `java.net.http.HttpClient`). Before writing streaming I tested both against a
+local server that streams slowly, with a 1-second read timeout:
+
+| Client | Healthy stream (6 lines, 300 ms apart, 1.8 s total) | Stalled stream (2.5 s gap) |
+|---|---|---|
+| `JdkClientHttpRequestFactory` | **killed at ~1.3 s** | killed at ~1.0 s |
+| `SimpleClientHttpRequestFactory` | completed | killed at ~1.0 s |
+
+So the JDK factory's "read timeout" caps the **whole response**. With 60 s configured,
+any LLM answer that streams longer than a minute would be cut off. `HttpURLConnection`'s
+timeout is a socket read timeout: it resets with every byte, which is exactly the
+"detect a stalled stream" behaviour we want.
+
+**Rejected:**
+- *Apache HttpClient 5:* same idle-timeout semantics, plus explicit connection-pool
+  limits. It is a good upgrade when week 3 or the load tests need pool limits, but for
+  now it is a new dependency without a need.
+- *JDK client plus a hand-written idle watchdog:* more code to get right and test.
+
+**Trade-offs to know:** no HTTP/2 (not needed for provider calls), and connection reuse
+relies on the JDK's keep-alive cache, with no explicit pool size. On virtual threads:
+the JDK's HTTP protocol handler moved from `synchronized` to `ReentrantLock` in JDK 18
+(JDK-8229867), so blocking reads don't pin carrier threads on our JDK 21.
+
+## 12. Streaming: blocking relay, lazy commit, and three kinds of failure
+
+**Chosen:** the controller hands the response to `StreamingChatHandler`. On the
+request's own virtual thread, the adapter reads the provider's SSE stream line by
+line (`SseEventReader`) and pushes each chunk through a `ChunkSink` to `SseResponse`,
+which writes and flushes one frame per chunk. It is plain blocking code, one thread per
+stream.
+
+**Lazy commit:** `SseResponse` sends nothing, not even the status line, until the first
+frame. That makes the failure handling depend on *when* the failure happens:
+
+| When it fails | What the client gets |
+|---|---|
+| Before the first byte (provider 5xx, timeout, refused) | A normal HTTP error (e.g. 503) with a JSON body, the same as non-streaming |
+| After the first byte (provider dropped the connection, sent an in-band error, or ended without `[DONE]`) | The 200 is already sent, so `data: {"error":{…,"code":"stream_interrupted"}}`, then the response ends cleanly **without** `[DONE]`. OpenAI's SDKs raise an exception on this frame |
+| The client disconnects | Logged at INFO. The write fails, the exception unwinds through the adapter's `try (body)`, and closing the provider's input stream early makes `HttpURLConnection` drop that socket, so we stop receiving (and paying for) tokens nobody will read |
+
+**Rejected:**
+- *`SseEmitter`:* designed for pushing events from *another* thread (an async
+  handoff). With virtual threads we can block the request thread, so the handoff is
+  pure complexity.
+- *`StreamingResponseBody`:* works, but runs the write loop as an async dispatch on a
+  task executor. That is harder to trace and gives no benefit on virtual threads.
+- *Always sending 200 and reporting every failure as an error event:* clients would
+  lose the ability to tell "provider down" (retry later) from "bad request" using the
+  status code.
+
+**Usage chunk:** the adapter always asks OpenAI for the final usage-only chunk
+(`stream_options.include_usage`), because week 5's cost accounting needs real token
+counts for every request. The handler forwards that chunk to the client only if the
+client asked for it, which is what OpenAI itself does.
+
+**A bug the tests caught:** the streaming adapter sends `Accept: text/event-stream`.
+When the mock answered with an *error*, Spring refused to write a JSON body for that
+`Accept` and returned 406 instead. Both the mock and the gateway's
+`ApiExceptionHandler` now set `Content-Type: application/json` explicitly on errors,
+as real providers do.

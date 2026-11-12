@@ -45,7 +45,9 @@ public record GatewayProperties(
 
     /**
      * @param connect how long to wait for a TCP connection to a provider
-     * @param read    how long to wait for the provider to start responding
+     * @param read    longest allowed silence while waiting for the provider:
+     *                before the first byte and between bytes of a stream.
+     *                It is not a cap on total duration, so long streams are fine.
      */
     public record Timeouts(@DefaultValue("5s") Duration connect, @DefaultValue("60s") Duration read) {
     }

@@ -25,6 +25,7 @@ import dev.llmgateway.mock.openai.OpenAiWire.Message;
 import dev.llmgateway.mock.openai.OpenAiWire.Usage;
 import dev.llmgateway.mock.sse.SseWriter;
 import jakarta.servlet.http.HttpServletResponse;
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -142,7 +143,8 @@ public class OpenAiMockController {
     private static ResponseEntity<ErrorBody> error(int status) {
         ErrorDetail detail = new ErrorDetail("Simulated provider error (HTTP " + status + ")",
                 errorType(status), null, null);
-        return ResponseEntity.status(status).body(new ErrorBody(detail));
+        // Explicit content type: real providers send JSON errors even to "Accept: text/event-stream".
+        return ResponseEntity.status(status).contentType(MediaType.APPLICATION_JSON).body(new ErrorBody(detail));
     }
 
     private static String errorType(int status) {

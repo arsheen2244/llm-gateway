@@ -5,7 +5,7 @@ import java.util.List;
 import dev.llmgateway.gateway.api.dto.ChatCompletionRequest;
 import dev.llmgateway.gateway.api.dto.ChatCompletionResponse;
 import dev.llmgateway.gateway.provider.AdapterRegistry;
-import dev.llmgateway.gateway.provider.ProviderAdapter;
+import dev.llmgateway.gateway.provider.ChunkSink;
 import dev.llmgateway.gateway.provider.ProviderException;
 import dev.llmgateway.gateway.routing.ModelRouter;
 import dev.llmgateway.gateway.routing.ProviderConfig;
@@ -23,7 +23,7 @@ public class ChatPipeline {
     private final AdapterRegistry adapters;
     private final List<ChatInterceptor> interceptors;
 
-    /** Spring injects every ChatInterceptor bean, sorted by @Order (empty in week 1). */
+    /** Spring injects every ChatInterceptor bean, sorted by @Order (none in week 1). */
     public ChatPipeline(ModelRouter router, AdapterRegistry adapters, List<ChatInterceptor> interceptors) {
         this.router = router;
         this.adapters = adapters;
@@ -31,19 +31,26 @@ public class ChatPipeline {
     }
 
     public ChatCompletionResponse complete(ChatCompletionRequest request) {
-        ChatContext context = new ChatContext(request, resolve(request.model()));
-        ProviderAdapter adapter = adapters.forType(context.provider().type());
-        return new InterceptorChain(interceptors, ctx -> adapter.complete(ctx.provider(), ctx.request()))
-                .complete(context);
+        ChatContext context = contextFor(request);
+        return chainFor(context).complete(context);
     }
 
-    private ProviderConfig resolve(String model) {
-        ProviderConfig provider = router.route(model);
+    public void stream(ChatCompletionRequest request, ChunkSink sink) {
+        ChatContext context = contextFor(request);
+        chainFor(context).stream(context, sink);
+    }
+
+    private ChatContext contextFor(ChatCompletionRequest request) {
+        ProviderConfig provider = router.route(request.model());
         if (!provider.hasApiKey()) {
             // Fail here with a clear message rather than sending an unauthenticated call upstream.
             throw ProviderException.of(provider.name(), ProviderException.Reason.NOT_CONFIGURED,
                     "No API key configured for provider '" + provider.name() + "'", null);
         }
-        return provider;
+        return new ChatContext(request, provider);
+    }
+
+    private InterceptorChain chainFor(ChatContext context) {
+        return new InterceptorChain(interceptors, adapters.forType(context.provider().type()));
     }
 }
