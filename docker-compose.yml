@@ -1,0 +1,35 @@
+# Starts the gateway and the mock provider.
+#   docker compose up --build
+# Gateway: http://localhost:8080   Mock (direct): http://localhost:8081
+#
+# Real-provider keys are optional and come from your shell or a git-ignored .env file.
+# Without them, gpt-* and claude-* return 503 provider_not_configured; mock-* always works.
+
+services:
+  mock-provider:
+    build:
+      context: .
+      dockerfile: mock-provider/Dockerfile
+    ports:
+      - "8081:8081"
+    environment:
+      # Override any of these from your shell, e.g. MOCK_ERROR_RATE=0.1 docker compose up
+      MOCK_LATENCY_MS: ${MOCK_LATENCY_MS:-100}
+      MOCK_CHUNK_COUNT: ${MOCK_CHUNK_COUNT:-10}
+      MOCK_CHUNK_DELAY_MS: ${MOCK_CHUNK_DELAY_MS:-10}
+      MOCK_ERROR_RATE: ${MOCK_ERROR_RATE:-0}
+      MOCK_MID_STREAM_FAILURE_RATE: ${MOCK_MID_STREAM_FAILURE_RATE:-0}
+
+  gateway:
+    build:
+      context: .
+      dockerfile: gateway/Dockerfile
+    ports:
+      - "8080:8080"
+    environment:
+      # Inside the Compose network, the mock is reachable by its service name.
+      MOCK_PROVIDER_URL: http://mock-provider:8081
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+    depends_on:
+      - mock-provider

@@ -1,0 +1,10 @@
+# Keep the build context small and free of secrets and local build output.
+.git
+.github
+.idea
+.vscode
+**/target
+.env
+*.log
+load-test
+docs

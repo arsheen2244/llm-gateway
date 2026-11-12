@@ -15,3 +15,6 @@ load-test/results/*.json
 # JVM crash dumps: they contain environment variables and machine details
 hs_err_pid*.log
 replay_pid*.log
+
+# Local Claude Code tooling
+.claude/
