@@ -4,11 +4,13 @@ import java.util.List;
 
 import dev.llmgateway.gateway.api.dto.ChatCompletionRequest;
 import dev.llmgateway.gateway.api.dto.ChatCompletionResponse;
+import dev.llmgateway.gateway.observability.LogFields;
 import dev.llmgateway.gateway.provider.AdapterRegistry;
 import dev.llmgateway.gateway.provider.ChunkSink;
 import dev.llmgateway.gateway.provider.ProviderException;
 import dev.llmgateway.gateway.routing.ModelRouter;
 import dev.llmgateway.gateway.routing.ProviderConfig;
+import org.slf4j.MDC;
 import org.springframework.stereotype.Service;
 
 /**
@@ -41,7 +43,11 @@ public class ChatPipeline {
     }
 
     private ChatContext contextFor(ChatCompletionRequest request) {
+        // Recorded in the MDC so every later log line, including the access log, shows them.
+        MDC.put(LogFields.MODEL, request.model());
+        MDC.put(LogFields.STREAM, String.valueOf(request.streaming()));
         ProviderConfig provider = router.route(request.model());
+        MDC.put(LogFields.PROVIDER, provider.name());
         if (!provider.hasApiKey()) {
             // Fail here with a clear message rather than sending an unauthenticated call upstream.
             throw ProviderException.of(provider.name(), ProviderException.Reason.NOT_CONFIGURED,

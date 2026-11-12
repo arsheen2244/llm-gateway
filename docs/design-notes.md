@@ -232,3 +232,39 @@ adapter itself is covered by integration tests against the mock's Anthropic endp
 `ProviderStreams.consume` holds the stream-reading rules both adapters share (always
 close the body, and decide when a stream counts as broken). Each adapter only says what
 its "finished" marker is: `[DONE]` for OpenAI, `message_stop` for Anthropic.
+
+## 14. Request IDs and structured logs
+
+**Chosen:**
+- `RequestIdFilter`, a servlet filter that runs first, gives each request an ID. It
+  reuses the client's `X-Request-Id` if that is 1–64 characters of `[A-Za-z0-9._-]`,
+  otherwise it generates a UUID. The ID goes into the **MDC** and back to the client in
+  the response header.
+- The pipeline adds `model`, `provider` and `stream` to the MDC. The streaming handler
+  adds `streamOutcome` (`completed` / `interrupted` / `client_disconnected`).
+- The filter writes **one access-log line per request** (logger `access`) with method,
+  path, status and duration, plus everything in the MDC.
+- Logs are JSON using Spring Boot's built-in ECS format
+  (`logging.structured.format.console: ecs`).
+
+**Why validate the incoming ID:** it is copied into every log line. A value containing a
+newline could forge log entries (log injection), and an unbounded one bloats logs.
+
+**Why `streamOutcome`:** a stream that fails halfway was already sent `200`, so the
+status alone would hide the failure. The extra field makes broken streams queryable.
+
+**Why MDC works here:** the MDC is a `ThreadLocal`. With one (virtual) thread per
+request, everything logged while handling a request is on that thread, so it carries
+the ID automatically. If work ever moves to other threads (week 3's hedged requests),
+the MDC must be copied to those threads explicitly. That is a known follow-up.
+
+**Rejected:**
+- *logstash-logback-encoder:* the same JSON output, but an extra dependency, now that
+  Spring Boot 3.4+ does this itself.
+- *Micrometer Tracing / OpenTelemetry trace IDs:* the right tool once there are several
+  services to trace across. In week 1 one gateway and a mock don't need it, and week 5
+  (metrics) is the natural place to add it.
+- *Forwarding the request ID to providers:* real providers ignore unknown headers, and
+  their own request IDs (e.g. OpenAI's `x-request-id` response header) are the ones
+  their support teams can look up. Logging the provider's ID is a possible later
+  addition.

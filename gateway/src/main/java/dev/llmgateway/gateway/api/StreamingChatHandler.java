@@ -2,6 +2,7 @@ package dev.llmgateway.gateway.api;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import dev.llmgateway.gateway.api.dto.ChatCompletionRequest;
+import dev.llmgateway.gateway.observability.LogFields;
 import dev.llmgateway.gateway.pipeline.ChatPipeline;
 import dev.llmgateway.gateway.provider.ProviderException;
 import dev.llmgateway.gateway.streaming.ClientDisconnectedException;
@@ -9,6 +10,7 @@ import dev.llmgateway.gateway.streaming.SseResponse;
 import jakarta.servlet.http.HttpServletResponse;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.slf4j.MDC;
 import org.springframework.stereotype.Component;
 
 /**
@@ -53,12 +55,16 @@ public class StreamingChatHandler {
                 sse.send(chunk);
             });
             sse.done();
+            MDC.put(LogFields.STREAM_OUTCOME, "completed");
         } catch (ClientDisconnectedException e) {
+            MDC.put(LogFields.STREAM_OUTCOME, "client_disconnected");
             log.info("Client disconnected mid-stream; provider stream closed");
         } catch (RuntimeException e) {
             if (!sse.started()) {
                 throw e;
             }
+            // The access log will still say status 200, so record what really happened.
+            MDC.put(LogFields.STREAM_OUTCOME, "interrupted");
             sendErrorEvent(sse, e);
         }
     }

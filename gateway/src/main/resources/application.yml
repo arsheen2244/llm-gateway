@@ -10,6 +10,15 @@ spring:
 server:
   port: 8080
 
+logging:
+  structured:
+    format:
+      # One JSON object per log line (Elastic Common Schema), built into Spring Boot.
+      # MDC fields (requestId, model, provider...) become JSON fields, so logs can be
+      # filtered by request ID without regex. Override with LOGGING_STRUCTURED_FORMAT_CONSOLE=
+      # (empty) for plain-text logs while developing.
+      console: ecs
+
 gateway:
   # Provider instances. "type" picks the adapter (the protocol); the rest says
   # where this instance lives. API keys come only from environment variables.
