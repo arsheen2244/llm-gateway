@@ -389,3 +389,50 @@ goes in the interceptor chain.
 
 **Known limit:** keys come from config, so adding or revoking a client needs a restart
 (or a config refresh). A key store (database or Redis) is the natural next step.
+
+## 18. Rate limiting algorithm: sliding window log, one contract for two implementations
+
+**Chosen:** a **sliding window log**. Each client has a time-ordered log of admitted
+requests, each with its token count, plus a running token total. On every check, entries
+older than the window are dropped (and their tokens subtracted). The request is admitted
+only if *both* limits still hold with it included.
+
+Rules (in the `RateLimiter` javadoc, and enforced by `RateLimiterContractTest`):
+- An entry admitted at `t` counts while `t > now - window`, so it leaves exactly at
+  `t + window`.
+- **Rejected requests are not recorded.** If they were, a client that keeps retrying
+  would keep pushing its own recovery further away.
+- `retryAfter` is the earliest moment the *same* request would fit. It is found by
+  walking entries oldest-first, pretending each has expired, until both limits fit.
+  For tokens this can mean waiting for several entries, not just the oldest one.
+- An estimate larger than the entire token limit is `TOO_LARGE`. It can never fit, so
+  telling the client to retry would be a lie.
+- `reconcile` replaces an entry's reserved tokens with the actual usage. If the entry
+  has already left the window it is a no-op, because it no longer counts anyway.
+
+**Rejected:**
+- *Fixed window* (one counter per calendar minute): allows bursts of up to 2× the limit
+  around the minute boundary.
+- *Sliding window counter* (two fixed buckets, the previous one weighted): O(1) memory,
+  but approximate. Its error would mix into the drift measurement, which is meant to
+  show the effect of *distribution* (shared Redis vs per-instance memory).
+- *Token bucket:* great for smoothing traffic, but "N per rolling minute" is the limit
+  people actually configure and reason about, and it maps to the log directly.
+
+**Memory bound:** because rejected requests are not stored, a client's log holds at most
+`maxRequests` entries. At 600 requests per minute, that is 600 small entries per client.
+
+**One contract, two implementations:** `RateLimiterContractTest` is abstract. The
+in-memory limiter runs it with a fake clock (exact timing). The Redis limiter runs the
+same cases for real, because its script reads Redis's clock, with a tolerance on
+measured durations. The in-memory limiter is therefore also the executable reference for
+the Lua script's semantics.
+
+**The tests were checked against planted bugs:** an off-by-one at the window edge
+(`<` instead of `<=`) fails 3 tests, and a `retryAfter` that only waits for the oldest
+entry fails the multi-expiry test. A suite that has never failed hasn't shown it can catch
+anything.
+
+**Concurrency:** the in-memory limiter locks per client with a `ReentrantLock`, not
+`synchronized`, following note 2's rule for virtual threads on JDK 21. The contract
+includes a test where 100 simultaneous callers against a limit of 10 must admit exactly 10.
