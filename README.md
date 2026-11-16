@@ -206,14 +206,16 @@ through the gateway, and reports p50 and p95 for each and the difference
 
 ### Results (measured 2026-11-16)
 
-Mock latency fixed at 50 ms, 10 chunks 5 ms apart, no errors. 10 virtual users, 30 s
-per phase, phases run one after another. Error rate **0.00%**. All times in ms.
+**The gateway adds about 1–2 ms at p50 and 3–5 ms at p95.**
+
+Mock with **zero latency** (no sleeps anywhere, so only real work is measured), 10 virtual
+users, 30 s per phase, phases one after another. Error rate **0.00%**. All times in ms.
 
 | Measurement | p50 direct | p50 via gateway | **p50 overhead** | p95 direct | p95 via gateway | **p95 overhead** |
 |---|---|---|---|---|---|---|
-| Non-streaming, total time | 62.35 | 77.68 | **15.33** | 68.95 | 87.29 | **18.35** |
-| Streaming, time to first byte | 61.98 | 77.19 | **15.21** | 67.66 | 91.75 | **24.10** |
-| Streaming, total time | 219.08 | 235.66 | **16.58** | 246.43 | 264.68 | **18.26** |
+| Non-streaming, total time | 1.00 | 2.09 | **1.09** | 2.72 | 5.61 | **2.89** |
+| Streaming, time to first byte | 0.55 | 2.20 | **1.65** | 3.07 | 6.08 | **3.01** |
+| Streaming, total time | 1.40 | 3.68 | **2.29** | 4.61 | 9.19 | **4.58** |
 
 **Setup:** one laptop (Intel i5-1155G7, 4 cores / 8 threads, 16 GB RAM, Windows 11), with
 k6 v2.2.0, the gateway and the mock all on the same machine and talking over localhost.
@@ -221,18 +223,34 @@ JDK 21.0.2, both apps run as jars (not in Docker) with
 `-Xmx192m -XX:MaxMetaspaceSize=128m -XX:ReservedCodeCacheSize=64m -Xss512k -XX:+UseSerialGC`.
 The machine had under 2 GB of free memory, so the JVMs were capped.
 
-**How to read it:**
-- The table is the **second** of two back-to-back runs on the same JVMs. In the first run
-  the gateway's first measured phase still showed JIT warm-up (non-streaming p95 overhead
-  71 ms, other rows matching the table within about 2 ms). The script's 15 s warm-up is too
-  short for a cold JVM, so run it twice or use the second result.
+### The 15 ms that turned out to be a bug
+
+The first published result showed a **constant ~15 ms** of overhead. Investigating it
+(design note 16) found the cause: Spring's `HttpURLConnection`-based client always sends a
+request's headers and body as separate TCP writes, and `HttpURLConnection` leaves Nagle's
+algorithm on. A standalone probe reproduced it outside the gateway (62.5 ms when headers
+and body go in one write, 78 ms when split), and Spring 6.2 has no setting to avoid the
+split. Switching to Apache HttpClient 5 (Nagle off) removed it. Same 50 ms mock setup as
+the original measurement, before and after:
+
+| Overhead, mock latency 50 ms | p50 before | p50 after | p95 before | p95 after |
+|---|---|---|---|---|
+| Non-streaming, total time | 15.33 | **0.57** | 18.35 | **4.53** |
+| Streaming, time to first byte | 15.21 | **−2.61** | 24.10 | **1.22** |
+| Streaming, total time | 16.58 | **−9.12** | 18.26 | **0.93** |
+
+The negative "after" values are measurement noise, not a speed-up. On Windows the mock's
+`Thread.sleep` calls are rounded up to the 15.6 ms timer tick, which moves each sleep by up
+to ~15 ms either way (a stream has 11 sleeps). In that setup the gateway's real 1–2 ms is
+smaller than the noise. That is why the headline table above uses a zero-latency mock.
+
+**How to read the numbers:**
+- Each table is the **second** of two back-to-back runs on the same JVMs. A cold JVM needs
+  more than the script's 15 s warm-up (the very first run once showed a 71 ms p95 that
+  disappeared on the second).
 - "Overhead" is p(gateway) − p(direct), a difference of percentiles, not a per-request
   percentile. It includes the extra localhost hop, not just gateway code.
-- **The constant ~15 ms is not yet explained.** It is suspiciously close to Windows'
-  15.6 ms timer tick. Two causes are ruled out by experiment: thread pinning (with
-  `-Djdk.tracePinnedThreads=short` under load, zero pins were reported), and virtual
-  threads (with `spring.threads.virtual.enabled=false`, a 15 s-per-phase run showed the
-  same 13–17 ms p50 overhead). Finding the real source is open work.
+- Under load, `-Djdk.tracePinnedThreads=short` reported **zero** pinned virtual threads.
 
 ## Roadmap
 
