@@ -39,6 +39,15 @@ jobs:
                }' */target/surefire-reports/*.txt | head -n 20
           echo "Failing tests in total: $(grep -h -c -E '<<< (FAILURE|ERROR)!' */target/surefire-reports/*.txt | paste -sd+ | bc)"
 
+      # Also public: did the Docker-only (Redis) tests run, or were they skipped?
+      - name: Report Redis test counts
+        if: always()
+        run: |
+          for f in gateway/target/surefire-reports/*Redis*.txt; do
+            [ -f "$f" ] || continue
+            echo "::notice title=$(basename "$f" .txt)::$(grep -m1 'Tests run' "$f")"
+          done
+
   docker:
     name: Docker Compose smoke test
     runs-on: ubuntu-latest

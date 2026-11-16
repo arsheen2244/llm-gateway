@@ -39,6 +39,14 @@ import org.springframework.web.client.RestClient;
  */
 class ProviderHttpClientTest {
 
+    static {
+        // The fake server must not add a Nagle delay of its own: the JDK's HttpServer writes
+        // response headers and body separately with Nagle ON, which on Linux costs ~40 ms per
+        // request (delayed ACK) and made the Nagle test measure the server, not our client.
+        // Read once when the JDK server first starts, so it is set before any test runs.
+        System.setProperty("sun.net.httpserver.nodelay", "true");
+    }
+
     private static final String CHUNK = "data: {\"id\":\"c\",\"object\":\"chat.completion.chunk\",\"created\":1,"
             + "\"model\":\"m\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"x\"},\"finish_reason\":null}]}\n\n";
     private static final ChatCompletionRequest REQUEST = new ChatCompletionRequest("m",
