@@ -31,7 +31,9 @@ jobs:
       - name: Publish test failures as annotations
         if: failure()
         run: |
-          awk '/<<< (FAILURE|ERROR)!/ {
+          # Skip each file's "Tests run: ... <<< FAILURE!" summary line; match the per-test
+          # lines, whose next line is the assertion or exception message.
+          awk '/<<< (FAILURE|ERROR)!/ && !/^Tests run:/ {
                  title = $1; getline msg
                  gsub(/%/, "%25", msg); gsub(/\r/, "", msg)
                  level = (++n <= 10) ? "error" : "warning"
