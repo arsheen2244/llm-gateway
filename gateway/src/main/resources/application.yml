@@ -55,3 +55,11 @@ gateway:
   timeouts:
     connect: 5s
     read: 60s
+
+  # Per-client limits come from gateway.auth.clients (design notes 18-19).
+  rate-limit:
+    enabled: true
+    backend: in-memory          # 'redis' to share windows across instances
+    window: 1m
+    # Completion tokens reserved when a request sets no max_tokens (reconciled afterwards).
+    default-completion-tokens: 1000

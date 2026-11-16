@@ -7,6 +7,7 @@ import java.io.IOException;
 import java.util.Map;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import dev.llmgateway.gateway.pipeline.ResponseHeaders;
 import jakarta.servlet.ServletOutputStream;
 import jakarta.servlet.WriteListener;
 import jakarta.servlet.http.HttpServletResponseWrapper;
@@ -17,7 +18,7 @@ class SseResponseTest {
 
     private final ObjectMapper json = new ObjectMapper();
     private final MockHttpServletResponse servlet = new MockHttpServletResponse();
-    private final SseResponse sse = new SseResponse(servlet, json);
+    private final SseResponse sse = new SseResponse(servlet, json, new ResponseHeaders());
 
     @Test
     void nothingIsCommittedBeforeTheFirstFrame() {
@@ -66,7 +67,7 @@ class SseResponseTest {
             }
         };
 
-        assertThatThrownBy(() -> new SseResponse(broken, json).done())
+        assertThatThrownBy(() -> new SseResponse(broken, json, new ResponseHeaders()).done())
                 .isInstanceOf(ClientDisconnectedException.class);
     }
 }

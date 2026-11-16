@@ -6,6 +6,7 @@ import java.nio.charset.StandardCharsets;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import dev.llmgateway.gateway.pipeline.ResponseHeaders;
 import jakarta.servlet.http.HttpServletResponse;
 
 /**
@@ -22,12 +23,18 @@ public class SseResponse {
 
     private final HttpServletResponse response;
     private final ObjectMapper json;
+    private final ResponseHeaders extraHeaders;
     private OutputStream out;
     private boolean started;
 
-    public SseResponse(HttpServletResponse response, ObjectMapper json) {
+    /**
+     * @param extraHeaders headers set by the pipeline (e.g. rate limits). They are read
+     *                     when the stream commits, by which time the pipeline has filled them in.
+     */
+    public SseResponse(HttpServletResponse response, ObjectMapper json, ResponseHeaders extraHeaders) {
         this.response = response;
         this.json = json;
+        this.extraHeaders = extraHeaders;
     }
 
     public boolean started() {
@@ -67,6 +74,7 @@ public class SseResponse {
         response.setHeader("Cache-Control", "no-cache");
         // Tells nginx-style reverse proxies not to buffer the stream.
         response.setHeader("X-Accel-Buffering", "no");
+        extraHeaders.asMap().forEach(response::setHeader);
         out = response.getOutputStream();
         started = true;
     }

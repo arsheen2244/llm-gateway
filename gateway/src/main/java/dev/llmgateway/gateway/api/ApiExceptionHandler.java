@@ -4,6 +4,7 @@ import java.util.stream.Collectors;
 
 import dev.llmgateway.gateway.api.dto.ErrorResponse;
 import dev.llmgateway.gateway.provider.ProviderException;
+import dev.llmgateway.gateway.ratelimit.RateLimitExceededException;
 import dev.llmgateway.gateway.routing.UnknownModelException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -38,6 +39,14 @@ public class ApiExceptionHandler {
         log.warn("Provider call failed: provider={} reason={} upstreamStatus={} message={}",
                 e.provider(), e.reason(), e.upstreamStatus(), e.getMessage());
         return toResponse(mapper.map(e));
+    }
+
+    /** 429 with the limiter's headers, so the client knows its limits and when to retry. */
+    @ExceptionHandler(RateLimitExceededException.class)
+    ResponseEntity<ErrorResponse> rateLimited(RateLimitExceededException e) {
+        ResponseEntity.BodyBuilder response = ResponseEntity.status(429).contentType(MediaType.APPLICATION_JSON);
+        e.headers().forEach(response::header);
+        return response.body(ErrorResponse.of(e.getMessage(), "rate_limit_error", e.code()));
     }
 
     @ExceptionHandler(UnknownModelException.class)

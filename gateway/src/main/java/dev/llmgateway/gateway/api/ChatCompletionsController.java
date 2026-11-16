@@ -4,6 +4,7 @@ import dev.llmgateway.gateway.api.dto.ChatCompletionRequest;
 import dev.llmgateway.gateway.api.dto.ChatCompletionResponse;
 import dev.llmgateway.gateway.auth.ClientIdentity;
 import dev.llmgateway.gateway.pipeline.ChatPipeline;
+import dev.llmgateway.gateway.pipeline.ResponseHeaders;
 import jakarta.servlet.http.HttpServletResponse;
 import jakarta.validation.Valid;
 import org.springframework.http.MediaType;
@@ -41,6 +42,10 @@ public class ChatCompletionsController {
             streamingHandler.handle(request, client, response);
             return null;
         }
-        return pipeline.complete(request, client);
+        ResponseHeaders headers = new ResponseHeaders();
+        ChatCompletionResponse body = pipeline.complete(request, client, headers);
+        // Spring writes the body after this method returns, so headers set now still go out.
+        headers.asMap().forEach(response::setHeader);
+        return body;
     }
 }

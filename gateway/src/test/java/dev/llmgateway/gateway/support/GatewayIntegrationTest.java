@@ -48,9 +48,14 @@ public abstract class GatewayIntegrationTest {
 
     /** A POST to the chat endpoint with JSON content type and the test client's key. */
     protected HttpRequest.Builder chatRequest() {
+        return chatRequest(TEST_KEY);
+    }
+
+    /** Same, sent as the client that owns {@code apiKey}. */
+    protected HttpRequest.Builder chatRequest(String apiKey) {
         return HttpRequest.newBuilder(URI.create("http://localhost:" + port + "/v1/chat/completions"))
                 .header("Content-Type", "application/json")
-                .header("Authorization", "Bearer " + TEST_KEY);
+                .header("Authorization", "Bearer " + apiKey);
     }
 
     protected <T> HttpResponse<T> post(String body, HttpResponse.BodyHandler<T> handler)

@@ -436,3 +436,54 @@ anything.
 **Concurrency:** the in-memory limiter locks per client with a `ReentrantLock`, not
 `synchronized`, following note 2's rule for virtual threads on JDK 21. The contract
 includes a test where 100 simultaneous callers against a limit of 10 must admit exactly 10.
+
+## 19. Rate limiting in the pipeline: estimate, reserve, reconcile
+
+**Where it runs:** `RateLimitInterceptor`, first in the `ChatInterceptor` chain (order 100).
+It needs the parsed request (to estimate tokens) and the response's `usage` (to reconcile),
+so it can't be a servlet filter (note 10). Being first means a refused request costs
+nothing else.
+
+**Token estimate (owner's choice):** prompt = characters ÷ 4, rounded up. Completion = the
+client's `max_tokens` if set, otherwise `gateway.rate-limit.default-completion-tokens`
+(1000).
+- *Why this:* no dependency, near-zero CPU, and `max_tokens` is a true upper bound when
+  the client sets it.
+- *Known weak spot:* without `max_tokens`, a reply longer than the default is
+  under-reserved. Reconciling afterwards corrects the count, but cannot undo the overshoot
+  that already happened, so a client can briefly exceed its token limit by up to (actual −
+  default) per in-flight request.
+- *Rejected:* worst-case reservation (the provider maximum when `max_tokens` is unset)
+  over-reserves so much that clients hit 429s long before they use their budget. A real
+  tokenizer (jtokkit) is exact only for OpenAI prompts (Anthropic's tokenizer isn't
+  public) and still has to guess the completion length.
+
+**Reconcile rules:**
+
+| How the call ended | Reconciled to | Why |
+|---|---|---|
+| Usage reported (response body, or the stream's final usage chunk) | actual total | The truth is known |
+| Provider failed before any output (HTTP error, timeout, connection failure) | 0 tokens; the request still counts | Providers don't bill these. The request slot stays used, so a failing client can't retry without limit |
+| Stream broke mid-way, invalid response, client disconnected, or no usage | the estimate (unchanged) | We can't know what was billed, so we stay conservative |
+
+A failing reconcile (for example Redis briefly down) is logged and never fails the client's
+request. The request already happened, and accounting must not turn a success into an error.
+
+**Responses:**
+- Allowed: OpenAI's header names `x-ratelimit-limit-requests`,
+  `x-ratelimit-remaining-requests`, `x-ratelimit-limit-tokens` and
+  `x-ratelimit-remaining-tokens`, so existing clients and SDKs understand them. The pipeline
+  is HTTP-free, so the interceptor writes them into a per-request `ResponseHeaders` object.
+  The controller copies them onto normal responses, and `SseResponse` copies them when the
+  stream commits (lazy commit makes that possible).
+- Over a limit: **429** `rate_limit_exceeded` (type `rate_limit_error`), the same headers,
+  and `Retry-After` in whole seconds, **rounded up**, so a client that waits exactly that
+  long will fit. The message says which limit was hit.
+- Estimate larger than the whole token limit: **429** `request_too_large_for_limit`
+  **without** `Retry-After`, because waiting can never help. The message suggests
+  lowering `max_tokens`. *Rejected:* 413, which means "request body too large in bytes",
+  a different thing.
+
+**Effect on the week-1 benchmark:** the limiter now sits in every request's path. The
+`load-test` demo client has limits high enough never to throttle, so the overhead
+benchmark still measures the gateway, now including the limiter.
