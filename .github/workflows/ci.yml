@@ -24,18 +24,20 @@ jobs:
       - name: Build and test
         run: ./mvnw -B verify
 
-      # Raw logs need a GitHub login; the run summary page does not. On failure, copy
-      # each failing test and its first lines of error into the summary so anyone
-      # viewing the run can see what broke.
-      - name: Publish test failures to the run summary
+      # Raw logs and step summaries need a GitHub login; annotations do not. On failure,
+      # turn each failing test into an annotation (test name + error line) so anyone
+      # viewing the run can see what broke. GitHub shows up to 10 errors and 10 warnings
+      # per step, so failures beyond the 10th become warnings.
+      - name: Publish test failures as annotations
         if: failure()
         run: |
-          {
-            echo "## Failing tests"
-            echo '```'
-            grep -h -A 6 -E "<<< (FAILURE|ERROR)!" */target/surefire-reports/*.txt | head -n 300 || echo "No test failures found: the build failed elsewhere (see logs)."
-            echo '```'
-          } >> "$GITHUB_STEP_SUMMARY"
+          awk '/<<< (FAILURE|ERROR)!/ {
+                 title = $1; getline msg
+                 gsub(/%/, "%25", msg); gsub(/\r/, "", msg)
+                 level = (++n <= 10) ? "error" : "warning"
+                 printf "::%s title=%s::%s\n", level, title, substr(msg, 1, 600)
+               }' */target/surefire-reports/*.txt | head -n 20
+          echo "Failing tests in total: $(grep -h -c -E '<<< (FAILURE|ERROR)!' */target/surefire-reports/*.txt | paste -sd+ | bc)"
 
   docker:
     name: Docker Compose smoke test
