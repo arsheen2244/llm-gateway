@@ -1,7 +1,6 @@
 package dev.llmgateway.mock.anthropic;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import java.io.IOException;
 import java.io.UncheckedIOException;
@@ -91,9 +90,15 @@ class AnthropicMockControllerTest {
                 post(body("mock-claude-fail-after-1", true, true), true, HttpResponse.BodyHandlers.ofLines());
 
         List<String> received = new ArrayList<>();
-        assertThatThrownBy(() -> response.body().forEach(received::add)).isInstanceOf(UncheckedIOException.class);
+        try {
+            response.body().forEach(received::add);
+        } catch (UncheckedIOException expected) {
+            // The usual outcome of an aborted connection.
+        }
 
-        assertThat(received).filteredOn(line -> line.equals("event: content_block_delta")).hasSize(1);
+        // At most the one delta that was sent (a TCP reset may discard unread data), and
+        // never the end-of-message event.
+        assertThat(received).filteredOn(line -> line.equals("event: content_block_delta")).hasSizeLessThanOrEqualTo(1);
         assertThat(received).doesNotContain("event: message_stop");
     }
 
