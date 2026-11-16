@@ -582,3 +582,45 @@ sum by the difference (`INCRBY`, which keeps the key's expiry).
 **Cost per call:** a handful of commands on one client's keys, plus work proportional to
 the number of entries that expired since the last call. The rejected path additionally
 walks only as many entries as it needs to.
+
+## 22. When Redis is unreachable: fall back to a local share of each limit
+
+**Owner's choice:** fail open, but not unlimited. Each instance falls back to its own
+in-memory limiter enforcing `ceil(limit / instances)`.
+
+**How it works (`FallbackRateLimiter`, wrapping the Redis limiter):**
+- **Trigger:** a `DataAccessException` from Redis (connection refused, or no reply within
+  the 100 ms command timeout). **Only these.** Any other exception, such as a script returning
+  the wrong shape, is a bug and is rethrown. A fallback that hides bugs would keep a broken
+  limiter "working" forever.
+- **While degraded,** Redis is *not* tried on every request (that would add 100 ms to each).
+  It is probed at most once per `gateway.rate-limit.redis-retry-interval` (5 s). An atomic
+  compare-and-set lets exactly one request per interval be the probe, and the first success
+  switches back. This is a deliberately minimal circuit breaker; the general one is week 3.
+- **Reconcile** tries Redis first. If Redis doesn't know the reservation, it was made
+  locally during the outage, so the local limiter reconciles it. No bookkeeping of where a
+  reservation came from is needed.
+- **Visibility:** a WARN when falling back, an INFO when recovering, and an MDC field
+  `rateLimiter` (`shared` / `local-fallback`) on every log line, including the access log.
+
+**Why round the share up:** with `rpm: 2` and 3 instances, rounding down gives each instance
+a share of 0, a complete outage for that client caused by *our* Redis problem. Rounding up
+over-admits by at most `instances − 1` per window across the fleet.
+
+**Known limits during an outage:**
+- The share assumes traffic is spread evenly. If a load balancer pins one client to one
+  instance, that client gets only 1/N of its limit until Redis returns.
+- A single request larger than one instance's token share is refused as too large.
+- `instances` is static config. If the fleet scales, it must be updated (or discovered).
+
+**Tested:**
+- `FallbackRateLimiterTest` (unit): falls back to the share, doesn't call Redis on every
+  request while degraded, sends one probe per interval, recovers, reconciles in the right
+  place, never throws from reconcile, and doesn't hide bugs.
+- `PausedRedisFallbackTest`: a real Redis container is *paused* mid-test (the connection
+  stays open but nothing answers, the realistic "Redis hangs" case). Requests are still
+  answered in under a second, are limited to the local share, and go back to Redis after
+  unpausing. Needs Docker, so it runs in CI.
+- `TwoGatewayInstancesTest`: two complete gateway applications share one Redis. 200
+  parallel HTTP requests, alternating between them, against a 50-per-minute client must
+  give exactly 50 × 200 and 150 × 429.

@@ -45,7 +45,7 @@ jobs:
       - name: Report Redis test counts
         if: always()
         run: |
-          for f in gateway/target/surefire-reports/*Redis*.txt; do
+          for f in gateway/target/surefire-reports/*Redis*.txt gateway/target/surefire-reports/*TwoGateway*.txt; do
             [ -f "$f" ] || continue
             echo "::notice title=$(basename "$f" .txt)::$(grep -m1 'Tests run' "$f")"
           done

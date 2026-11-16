@@ -6,6 +6,8 @@ public final class LogFields {
     public static final String REQUEST_ID = "requestId";
     /** The authenticated gateway client (never its key). */
     public static final String CLIENT_ID = "clientId";
+    /** Which limiter decided: "shared" (Redis) or "local-fallback". */
+    public static final String RATE_LIMITER = "rateLimiter";
     public static final String MODEL = "model";
     public static final String PROVIDER = "provider";
     public static final String STREAM = "stream";

@@ -20,13 +20,16 @@ public class RateLimitConfig {
     /**
      * {@code redis}: windows shared by all instances. {@code in-memory}: each instance counts
      * on its own (the baseline). The Redis connection is only requested for the redis backend,
-     * so the in-memory backend never touches Redis.
+     * so the in-memory backend never touches Redis. The Redis limiter is always wrapped in the
+     * local fallback for when Redis is unreachable (design note 22).
      */
     @Bean
     RateLimiter rateLimiter(RateLimitProperties properties, ObjectProvider<StringRedisTemplate> redis) {
+        Clock clock = Clock.systemUTC();
         return switch (properties.backend()) {
-            case IN_MEMORY -> new InMemoryRateLimiter(Clock.systemUTC());
-            case REDIS -> new RedisRateLimiter(redis.getObject());
+            case IN_MEMORY -> new InMemoryRateLimiter(clock);
+            case REDIS -> new FallbackRateLimiter(new RedisRateLimiter(redis.getObject()),
+                    new InMemoryRateLimiter(clock), properties.instances(), properties.redisRetryInterval(), clock);
         };
     }
 

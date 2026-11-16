@@ -38,7 +38,8 @@ class RateLimitInterceptorTest {
     private final InMemoryRateLimiterTest.MutableClock clock = new InMemoryRateLimiterTest.MutableClock();
     private final InMemoryRateLimiter limiter = new InMemoryRateLimiter(clock);
     private final RateLimitProperties properties =
-            new RateLimitProperties(true, RateLimitProperties.Backend.IN_MEMORY, Duration.ofMinutes(1), 1000);
+            new RateLimitProperties(true, RateLimitProperties.Backend.IN_MEMORY, Duration.ofMinutes(1), 1000,
+                    1, Duration.ofSeconds(5));
     private final RateLimitInterceptor interceptor =
             new RateLimitInterceptor(limiter, new TokenEstimator(1000), properties);
 

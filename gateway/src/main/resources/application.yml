@@ -70,3 +70,7 @@ gateway:
     window: 1m
     # Completion tokens reserved when a request sets no max_tokens (reconciled afterwards).
     default-completion-tokens: 1000
+    # While Redis is unreachable, each instance enforces 1/instances of every limit,
+    # and tries Redis again at this interval (design note 22).
+    instances: 1
+    redis-retry-interval: 5s
