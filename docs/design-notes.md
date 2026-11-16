@@ -146,7 +146,11 @@ such as request IDs (step 7).
 
 ## 11. HTTP client for provider calls: HttpURLConnection, chosen by measurement
 
-**Chosen:** Spring's `SimpleClientHttpRequestFactory` (built on `HttpURLConnection`),
+> **Superseded by note 16.** HttpURLConnection was later replaced by Apache HttpClient 5
+> after the benchmark found a 15 ms per-call cost. This note is kept because its timeout
+> measurement still explains why the JDK HttpClient was ruled out.
+
+**Chosen (at the time):** Spring's `SimpleClientHttpRequestFactory` (built on `HttpURLConnection`),
 with a connect timeout and a *read* timeout. The read timeout is the maximum silence
 between bytes.
 
@@ -190,7 +194,7 @@ frame. That makes the failure handling depend on *when* the failure happens:
 |---|---|
 | Before the first byte (provider 5xx, timeout, refused) | A normal HTTP error (e.g. 503) with a JSON body, the same as non-streaming |
 | After the first byte (provider dropped the connection, sent an in-band error, or ended without `[DONE]`) | The 200 is already sent, so `data: {"error":{…,"code":"stream_interrupted"}}`, then the response ends cleanly **without** `[DONE]`. OpenAI's SDKs raise an exception on this frame |
-| The client disconnects | Logged at INFO. The write fails, the exception unwinds through the adapter's `try (body)`, and closing the provider's input stream early makes `HttpURLConnection` drop that socket, so we stop receiving (and paying for) tokens nobody will read |
+| The client disconnects | Logged at INFO. The write fails, the exception unwinds through the adapter, and `ProviderStreams` aborts the provider connection instead of draining it (see note 16), so we stop receiving (and paying for) tokens nobody will read |
 
 **Rejected:**
 - *`SseEmitter`:* designed for pushing events from *another* thread (an async
@@ -271,13 +275,15 @@ the MDC must be copied to those threads explicitly. That is a known follow-up.
 
 ## 15. Benchmark findings (week 1)
 
-Measured gateway overhead on one Windows laptop (details and full table in the README):
-about **15 ms at p50 and 18–24 ms at p95**, with 0% errors.
+The first measurement on one Windows laptop showed about **15 ms at p50 and 18–24 ms at
+p95**, with 0% errors. That turned out to be a bug in the HTTP client setup (note 16).
+After the fix, the gateway adds **about 1–2 ms at p50 and 3–5 ms at p95** (full tables
+in the README).
 
 **What the benchmark proved besides the numbers:**
 - **No virtual-thread pinning under load.** With `-Djdk.tracePinnedThreads=short` the
-  gateway reported zero pinned threads during the run. This backs design note 11's claim
-  that blocking `HttpURLConnection` reads on JDK 21 don't pin carrier threads.
+  gateway reported zero pinned threads during the run, both with `HttpURLConnection` (note
+  11) and after the switch to Apache HttpClient 5 (note 16).
 - **Virtual threads cost nothing measurable here.** The same benchmark with
   `spring.threads.virtual.enabled=false` (Tomcat's platform-thread pool) gave the same
   13–17 ms overhead. They were chosen for scaling many open streams, not for per-request
@@ -285,12 +291,61 @@ about **15 ms at p50 and 18–24 ms at p95**, with 0% errors.
 - **A cold JVM needs a longer warm-up than 15 s.** The first run's first gateway phase
   had a 71 ms p95 overhead that disappeared on the second run.
 
-**Open question:** the constant ~15 ms. It is close to Windows' 15.6 ms default timer
-resolution, which suggests something in the gateway's path waits on a timer rather than
-doing 15 ms of work. Candidates not yet tested: connection reuse to the mock
-(`HttpURLConnection` keeps at most 5 idle connections per host by default, but the test
-runs 10 concurrent users), TCP small-packet behaviour (Nagle's algorithm with delayed
-ACKs when the request is written in two parts), and synchronous JSON access-log writing.
-The next step is to profile one request, or to rerun on Linux, where timer resolution
-is about 1 ms. If the overhead drops sharply there, the cause is platform timing rather
-than gateway code.
+**The constant ~15 ms:** resolved, see note 16.
+
+**Measurement lesson:** with a mock that sleeps, Windows rounds each `Thread.sleep` up to
+its 15.6 ms timer tick, so the mock's own timing moves by up to ~15 ms. After the fix, that
+noise was larger than the gateway's real cost and even produced negative "overhead" values.
+The headline overhead is therefore measured against a **zero-latency** mock, where nothing
+sleeps.
+
+## 16. HTTP client, revisited: Apache HttpClient 5 (Nagle off)
+
+**The problem, found by investigation rather than guessed:**
+1. The ~15 ms overhead was the same one request at a time as under load, so it was a fixed
+   per-request cost, not contention.
+2. The gateway's own access log measured ~16 ms more than the mock took, so the time was
+   spent *inside* the gateway's handling, not at the network edges.
+3. Turning virtual threads off changed nothing, which ruled them out.
+4. A standalone probe with plain `HttpURLConnection` (no Spring) reproduced it exactly:
+   **62.5 ms** when the body is buffered (headers and body in one write) and **78 ms** with
+   fixed-length or chunked streaming (headers, then body, as separate writes).
+5. Spring 6.2's `SimpleClientHttpRequest` (checked in the bytecode) always uses one of
+   the two streaming modes when there is a body, and has no option to buffer.
+
+The likely mechanism is Nagle's algorithm (left on by `HttpURLConnection`) holding the
+small second write until the first is acknowledged, while the receiver delays its ACK.
+What was proven is the effect (split writes cost ~16 ms here). The exact TCP mechanism is
+inferred, not measured.
+
+**Chosen:** Apache HttpClient 5 through Spring's `HttpComponentsClientHttpRequestFactory`,
+with:
+- **TCP_NODELAY on** (Nagle off), which is the fix;
+- **socket timeout = `timeouts.read`**, the same "max silence between bytes" semantics
+  note 11 required for long streams;
+- an explicit **connection pool** (500 total, 200 per provider), which weeks 2 and 3 will
+  need anyway;
+- **automatic retries off**, because retrying is week 3's policy decision, not something
+  the HTTP library should do silently.
+
+**Rejected:**
+- *Our own `ClientHttpRequestFactory` that lets `HttpURLConnection` buffer:* measured to fix
+  the delay, with no new dependency, but it means maintaining a hand-written HTTP adapter.
+- *Documenting it and moving on:* the README number would stay inflated by an avoidable bug.
+
+**A trap this switch introduced, and how it is handled:** when a response stream is closed
+early, Apache HttpClient *reads the rest of it* so the connection can be reused.
+`HttpURLConnection` dropped the connection instead. Left alone, a client that disconnects
+mid-stream would make the gateway keep downloading (and paying for) the provider's whole
+answer. `ProviderStreams.consume` therefore calls `abort()` on the body when reading
+stops early.
+
+**Regression tests** (`ProviderHttpClientTest`, using the real client config against a
+deliberately slow local server):
+- a 2.4 s stream with 300 ms gaps is **not** cut off by a 1 s read timeout;
+- 3 s of silence **is** cut off;
+- a client disconnect returns in under 1 s instead of draining a 3 s stream;
+- small requests to an instant server have a median under 10 ms (Nagle would cost 16–40 ms).
+
+**Result:** overhead at the same 50 ms setup fell from 15.3 ms to 0.6 ms (p50,
+non-streaming). With a zero-latency mock the gateway adds about 1–2 ms at p50.
