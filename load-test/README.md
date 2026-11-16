@@ -28,7 +28,8 @@ plus the difference.
 
    Options: `VUS` (default 10), `PHASE_SECONDS` (default 30), `GATEWAY_URL`, `MOCK_URL`.
 
-**How to read the result:** phases run one after another after an unrecorded warm-up,
+**How to read the result:** phases run one after another after an unrecorded warm-up
+(15 s, which is too short for a cold JVM: run the script twice and use the second result),
 so the JIT compiler has optimised the hot code and the targets don't compete for CPU.
 "p95 overhead" is p95(gateway) minus p95(direct), which is a difference of
 percentiles, not a per-request percentile. k6, the gateway and the mock all share one

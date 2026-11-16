@@ -268,3 +268,29 @@ the MDC must be copied to those threads explicitly. That is a known follow-up.
   their own request IDs (e.g. OpenAI's `x-request-id` response header) are the ones
   their support teams can look up. Logging the provider's ID is a possible later
   addition.
+
+## 15. Benchmark findings (week 1)
+
+Measured gateway overhead on one Windows laptop (details and full table in the README):
+about **15 ms at p50 and 18–24 ms at p95**, with 0% errors.
+
+**What the benchmark proved besides the numbers:**
+- **No virtual-thread pinning under load.** With `-Djdk.tracePinnedThreads=short` the
+  gateway reported zero pinned threads during the run. This backs design note 11's claim
+  that blocking `HttpURLConnection` reads on JDK 21 don't pin carrier threads.
+- **Virtual threads cost nothing measurable here.** The same benchmark with
+  `spring.threads.virtual.enabled=false` (Tomcat's platform-thread pool) gave the same
+  13–17 ms overhead. They were chosen for scaling many open streams, not for per-request
+  speed, and this result is consistent with that.
+- **A cold JVM needs a longer warm-up than 15 s.** The first run's first gateway phase
+  had a 71 ms p95 overhead that disappeared on the second run.
+
+**Open question:** the constant ~15 ms. It is close to Windows' 15.6 ms default timer
+resolution, which suggests something in the gateway's path waits on a timer rather than
+doing 15 ms of work. Candidates not yet tested: connection reuse to the mock
+(`HttpURLConnection` keeps at most 5 idle connections per host by default, but the test
+runs 10 concurrent users), TCP small-packet behaviour (Nagle's algorithm with delayed
+ACKs when the request is written in two parts), and synchronous JSON access-log writing.
+The next step is to profile one request, or to rerun on Linux, where timer resolution
+is about 1 ms. If the overhead drops sharply there, the cause is platform timing rather
+than gateway code.

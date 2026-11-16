@@ -204,9 +204,35 @@ with Compose and runs `scripts/smoke-test.sh` against it.
 through the gateway, and reports p50 and p95 for each and the difference
 (see [load-test/README.md](load-test/README.md)).
 
-**Results: not measured yet.** The first local run was invalid: the development machine
-ran out of memory and both JVMs crashed mid-run. Numbers will be added here once a
-clean run (0% errors) is done, together with the hardware it ran on.
+### Results (measured 2026-11-16)
+
+Mock latency fixed at 50 ms, 10 chunks 5 ms apart, no errors. 10 virtual users, 30 s
+per phase, phases run one after another. Error rate **0.00%**. All times in ms.
+
+| Measurement | p50 direct | p50 via gateway | **p50 overhead** | p95 direct | p95 via gateway | **p95 overhead** |
+|---|---|---|---|---|---|---|
+| Non-streaming, total time | 62.35 | 77.68 | **15.33** | 68.95 | 87.29 | **18.35** |
+| Streaming, time to first byte | 61.98 | 77.19 | **15.21** | 67.66 | 91.75 | **24.10** |
+| Streaming, total time | 219.08 | 235.66 | **16.58** | 246.43 | 264.68 | **18.26** |
+
+**Setup:** one laptop (Intel i5-1155G7, 4 cores / 8 threads, 16 GB RAM, Windows 11), with
+k6 v2.2.0, the gateway and the mock all on the same machine and talking over localhost.
+JDK 21.0.2, both apps run as jars (not in Docker) with
+`-Xmx192m -XX:MaxMetaspaceSize=128m -XX:ReservedCodeCacheSize=64m -Xss512k -XX:+UseSerialGC`.
+The machine had under 2 GB of free memory, so the JVMs were capped.
+
+**How to read it:**
+- The table is the **second** of two back-to-back runs on the same JVMs. In the first run
+  the gateway's first measured phase still showed JIT warm-up (non-streaming p95 overhead
+  71 ms, other rows matching the table within about 2 ms). The script's 15 s warm-up is too
+  short for a cold JVM, so run it twice or use the second result.
+- "Overhead" is p(gateway) − p(direct), a difference of percentiles, not a per-request
+  percentile. It includes the extra localhost hop, not just gateway code.
+- **The constant ~15 ms is not yet explained.** It is suspiciously close to Windows'
+  15.6 ms timer tick. Two causes are ruled out by experiment: thread pinning (with
+  `-Djdk.tracePinnedThreads=short` under load, zero pins were reported), and virtual
+  threads (with `spring.threads.virtual.enabled=false`, a 15 s-per-phase run showed the
+  same 13–17 ms p50 overhead). Finding the real source is open work.
 
 ## Roadmap
 
