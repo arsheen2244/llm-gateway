@@ -2,7 +2,6 @@ package dev.llmgateway.gateway.observability;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-import java.net.URI;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 
@@ -25,8 +24,7 @@ class RequestLoggingIntegrationTest extends GatewayIntegrationTest {
 
     @Test
     void accessLogLineIsJsonWithRequestIdModelProviderAndStatus(CapturedOutput output) throws Exception {
-        HttpRequest request = HttpRequest.newBuilder(URI.create("http://localhost:" + port + "/v1/chat/completions"))
-                .header("Content-Type", "application/json")
+        HttpRequest request = chatRequest()
                 .header(RequestIdFilter.HEADER, "trace-me-42")
                 .POST(HttpRequest.BodyPublishers.ofString(chatBody("mock-gpt", false)))
                 .build();
@@ -48,8 +46,7 @@ class RequestLoggingIntegrationTest extends GatewayIntegrationTest {
 
     @Test
     void interruptedStreamIsVisibleInAccessLogDespiteStatus200(CapturedOutput output) throws Exception {
-        HttpRequest request = HttpRequest.newBuilder(URI.create("http://localhost:" + port + "/v1/chat/completions"))
-                .header("Content-Type", "application/json")
+        HttpRequest request = chatRequest()
                 .header(RequestIdFilter.HEADER, "broken-stream-7")
                 .POST(HttpRequest.BodyPublishers.ofString(chatBody("mock-fail-after-1", true)))
                 .build();

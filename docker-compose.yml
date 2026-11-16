@@ -29,6 +29,8 @@ services:
     environment:
       # Inside the Compose network, the mock is reachable by its service name.
       MOCK_PROVIDER_URL: http://mock-provider:8081
+      # Demo clients with public keys (gateway/src/main/resources/application-local.yml).
+      SPRING_PROFILES_ACTIVE: local
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
     depends_on:

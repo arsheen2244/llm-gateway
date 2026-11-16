@@ -2,6 +2,7 @@ package dev.llmgateway.gateway.api;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import dev.llmgateway.gateway.api.dto.ChatCompletionRequest;
+import dev.llmgateway.gateway.auth.ClientIdentity;
 import dev.llmgateway.gateway.observability.LogFields;
 import dev.llmgateway.gateway.pipeline.ChatPipeline;
 import dev.llmgateway.gateway.provider.ProviderException;
@@ -43,10 +44,10 @@ public class StreamingChatHandler {
         this.json = json;
     }
 
-    public void handle(ChatCompletionRequest request, HttpServletResponse response) {
+    public void handle(ChatCompletionRequest request, ClientIdentity client, HttpServletResponse response) {
         SseResponse sse = new SseResponse(response, json);
         try {
-            pipeline.stream(request, chunk -> {
+            pipeline.stream(request, client, chunk -> {
                 // The usage-only chunk is always fetched (for accounting) but only
                 // forwarded if the client asked for it, as OpenAI itself behaves.
                 if (chunk.usageOnly() && !request.usageRequested()) {

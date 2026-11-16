@@ -4,6 +4,7 @@ import java.util.List;
 
 import dev.llmgateway.gateway.api.dto.ChatCompletionRequest;
 import dev.llmgateway.gateway.api.dto.ChatCompletionResponse;
+import dev.llmgateway.gateway.auth.ClientIdentity;
 import dev.llmgateway.gateway.observability.LogFields;
 import dev.llmgateway.gateway.provider.AdapterRegistry;
 import dev.llmgateway.gateway.provider.ChunkSink;
@@ -32,17 +33,17 @@ public class ChatPipeline {
         this.interceptors = List.copyOf(interceptors);
     }
 
-    public ChatCompletionResponse complete(ChatCompletionRequest request) {
-        ChatContext context = contextFor(request);
+    public ChatCompletionResponse complete(ChatCompletionRequest request, ClientIdentity client) {
+        ChatContext context = contextFor(request, client);
         return chainFor(context).complete(context);
     }
 
-    public void stream(ChatCompletionRequest request, ChunkSink sink) {
-        ChatContext context = contextFor(request);
+    public void stream(ChatCompletionRequest request, ClientIdentity client, ChunkSink sink) {
+        ChatContext context = contextFor(request, client);
         chainFor(context).stream(context, sink);
     }
 
-    private ChatContext contextFor(ChatCompletionRequest request) {
+    private ChatContext contextFor(ChatCompletionRequest request, ClientIdentity client) {
         // Recorded in the MDC so every later log line, including the access log, shows them.
         MDC.put(LogFields.MODEL, request.model());
         MDC.put(LogFields.STREAM, String.valueOf(request.streaming()));
@@ -53,7 +54,7 @@ public class ChatPipeline {
             throw ProviderException.of(provider.name(), ProviderException.Reason.NOT_CONFIGURED,
                     "No API key configured for provider '" + provider.name() + "'", null);
         }
-        return new ChatContext(request, provider);
+        return new ChatContext(client, request, provider);
     }
 
     private InterceptorChain chainFor(ChatContext context) {

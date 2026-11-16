@@ -2,7 +2,6 @@ package dev.llmgateway.gateway.api;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-import java.net.URI;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.util.List;
@@ -65,8 +64,7 @@ class StreamingIntegrationTest extends GatewayIntegrationTest {
 
     @Test
     void failureBeforeFirstChunkIsAProperHttpErrorEvenForStreamingClients() throws Exception {
-        HttpRequest request = HttpRequest.newBuilder(URI.create("http://localhost:" + port + "/v1/chat/completions"))
-                .header("Content-Type", "application/json")
+        HttpRequest request = chatRequest()
                 .header("Accept", "text/event-stream")
                 .POST(HttpRequest.BodyPublishers.ofString(chatBody("mock-error-503", true)))
                 .build();

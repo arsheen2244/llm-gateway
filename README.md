@@ -41,33 +41,37 @@ Requires Java 21. The Maven wrapper downloads Maven itself.
 ```bash
 ./mvnw package -DskipTests
 java -jar mock-provider/target/mock-provider-0.1.0-SNAPSHOT-exec.jar
-java -jar gateway/target/gateway-0.1.0-SNAPSHOT.jar
+java -jar gateway/target/gateway-0.1.0-SNAPSHOT.jar --spring.profiles.active=local
 ```
 
 (On Windows use `mvnw.cmd`. Run the two `java` commands in separate terminals.)
 
 ### Try it
 
+Every request needs a gateway API key. The `local` profile (on in Docker Compose, and
+with `--spring.profiles.active=local`) defines a demo client whose key is public:
+`local-dev-key`. Without that profile no clients exist and every request gets a 401.
+
 ```bash
-curl http://localhost:8080/v1/chat/completions -H "Content-Type: application/json" -d '{"model":"mock-gpt","messages":[{"role":"user","content":"Hello"}]}'
+curl http://localhost:8080/v1/chat/completions -H "Authorization: Bearer local-dev-key" -H "Content-Type: application/json" -d '{"model":"mock-gpt","messages":[{"role":"user","content":"Hello"}]}'
 ```
 
 Streaming:
 
 ```bash
-curl -N http://localhost:8080/v1/chat/completions -H "Content-Type: application/json" -d '{"model":"mock-gpt","stream":true,"messages":[{"role":"user","content":"Hello"}]}'
+curl -N http://localhost:8080/v1/chat/completions -H "Authorization: Bearer local-dev-key" -H "Content-Type: application/json" -d '{"model":"mock-gpt","stream":true,"messages":[{"role":"user","content":"Hello"}]}'
 ```
 
 The same request through the **Anthropic adapter** (to the mock's Anthropic endpoint):
 
 ```bash
-curl -N http://localhost:8080/v1/chat/completions -H "Content-Type: application/json" -d '{"model":"mock-claude-3","stream":true,"messages":[{"role":"user","content":"Hello"}]}'
+curl -N http://localhost:8080/v1/chat/completions -H "Authorization: Bearer local-dev-key" -H "Content-Type: application/json" -d '{"model":"mock-claude-3","stream":true,"messages":[{"role":"user","content":"Hello"}]}'
 ```
 
 A stream that **fails halfway** (watch the final `error` event):
 
 ```bash
-curl -N http://localhost:8080/v1/chat/completions -H "Content-Type: application/json" -d '{"model":"mock-fail-after-3","stream":true,"messages":[{"role":"user","content":"Hello"}]}'
+curl -N http://localhost:8080/v1/chat/completions -H "Authorization: Bearer local-dev-key" -H "Content-Type: application/json" -d '{"model":"mock-fail-after-3","stream":true,"messages":[{"role":"user","content":"Hello"}]}'
 ```
 
 ### Using real providers

@@ -1,0 +1,19 @@
+# Profile for running locally and in Docker Compose: --spring.profiles.active=local
+# (or SPRING_PROFILES_ACTIVE=local). The default profile has NO clients, so the gateway
+# rejects everything until clients are configured (design note 17).
+#
+# These demo keys are PUBLIC on purpose (they are in the README). Never activate this
+# profile on a gateway that has real provider keys and is reachable by others.
+gateway:
+  auth:
+    clients:
+      - id: local-dev
+        # SHA-256 of "local-dev-key"
+        key-sha256: ed5a18fb8f807f996d649e379d3f35f39c543a91bdbf88c492f2ebd10d4df86c
+        requests-per-minute: 600
+        tokens-per-minute: 1000000
+      - id: load-test
+        # SHA-256 of "load-test-key". High limits so overhead benchmarks are not throttled.
+        key-sha256: 3e3a73ab2b4bbd90f468a4b2dd3960a54265f01d30565d4f2b3f29ab5260037d
+        requests-per-minute: 1000000
+        tokens-per-minute: 1000000000

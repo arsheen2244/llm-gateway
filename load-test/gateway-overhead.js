@@ -27,8 +27,13 @@ const WARMUP = 15;
 const GAP = 2;
 
 const PATH = '/v1/chat/completions';
-// The mock requires a bearer token (any value); the gateway ignores this header.
-const HEADERS = { 'Content-Type': 'application/json', Authorization: 'Bearer mock-key' };
+// The mock accepts any bearer token. The gateway needs a real client key: the
+// "load-test" demo client (local profile) has limits high enough not to throttle.
+const MOCK_HEADERS = { 'Content-Type': 'application/json', Authorization: 'Bearer mock-key' };
+const GATEWAY_HEADERS = {
+  'Content-Type': 'application/json',
+  Authorization: `Bearer ${__ENV.GATEWAY_KEY || 'load-test-key'}`,
+};
 const JSON_BODY = JSON.stringify({ model: 'mock-gpt', messages: [{ role: 'user', content: 'Say hello' }] });
 const STREAM_BODY = JSON.stringify({ model: 'mock-gpt', stream: true, messages: [{ role: 'user', content: 'Say hello' }] });
 
@@ -65,7 +70,8 @@ export const options = {
 };
 
 function send(baseUrl, body, isStream) {
-  const res = http.post(baseUrl + PATH, body, { headers: HEADERS });
+  const headers = baseUrl === GATEWAY ? GATEWAY_HEADERS : MOCK_HEADERS;
+  const res = http.post(baseUrl + PATH, body, { headers });
   const ok = check(res, {
     'status is 200': (r) => r.status === 200,
     // r.body is null when the connection failed, so default to '' (counts as an error).

@@ -17,7 +17,7 @@ plus the difference.
 
    ```bash
    java -jar mock-provider/target/mock-provider-0.1.0-SNAPSHOT-exec.jar --mock.latency-ms=50 --mock.chunk-count=10 --mock.chunk-delay-ms=5
-   java -jar gateway/target/gateway-0.1.0-SNAPSHOT.jar
+   java -jar gateway/target/gateway-0.1.0-SNAPSHOT.jar --spring.profiles.active=local
    ```
 
 2. Run k6:

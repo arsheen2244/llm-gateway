@@ -349,3 +349,43 @@ deliberately slow local server):
 
 **Result:** overhead at the same 50 ms setup fell from 15.3 ms to 0.6 ms (p50,
 non-streaming). With a zero-latency mock the gateway adds about 1–2 ms at p50.
+
+## 17. Client authentication: hashed API keys, locked by default
+
+**Chosen:**
+- Clients send a gateway key as `Authorization: Bearer <key>`, which is what OpenAI's SDKs
+  already send, so existing clients only change their base URL and key.
+- Clients live in config under `gateway.auth.clients`, each with an id, a **SHA-256 hash**
+  of its key, and its limits (`requests-per-minute`, `tokens-per-minute`).
+- `ApiKeyAuthFilter`, a servlet filter right after `RequestIdFilter`, rejects a missing
+  or unknown key with an OpenAI-style 401 (`missing_api_key` / `invalid_api_key`)
+  **before the body is parsed**. A valid key attaches a `ClientIdentity` (id + limits) to
+  the request. The controller passes it into `ChatContext`, where the rate limiter reads
+  it. The client id is also added to the MDC, so every log line says who called.
+- **The default config has no clients, so every request is rejected.** A `local` profile
+  defines demo clients with deliberately public keys, for local runs and Docker Compose.
+
+**Why hashes, not keys:** a config file is copied around (repos, CI logs, support
+tickets). With hashes, a leaked config grants nothing. The presented key is hashed and the
+hash is looked up in a map, so there is no character-by-character comparison of secrets
+whose timing could leak how much of a guess was right.
+
+**Why locked by default:** a gateway deployed with real provider keys but no client config
+must not be an open proxy to paid APIs. Forgetting configuration should fail safe.
+
+**Why a filter, not an interceptor:** auth needs nothing from the parsed body and should
+reject as cheaply as possible (note 10). The rate limiter is the opposite case, so it
+goes in the interceptor chain.
+
+**Rejected:**
+- *Spring Security:* the right tool once there are users, sessions, roles or OAuth. For
+  "look up one bearer key" it adds a large framework and its own filter chain to explain,
+  for about 40 lines of benefit.
+- *Plaintext keys in config, even from environment variables:* simpler, but every place
+  that can read the config can impersonate every client.
+- *Salted slow hashes (bcrypt/argon2):* those protect low-entropy *passwords* against
+  offline guessing. API keys should be long random strings, where SHA-256 is enough, and
+  a slow hash on every request would add milliseconds of CPU per call.
+
+**Known limit:** keys come from config, so adding or revoking a client needs a restart
+(or a config refresh). A key store (database or Redis) is the natural next step.

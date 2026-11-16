@@ -22,7 +22,7 @@ class InterceptorChainTest {
     private static final ChatCompletionChunk CHUNK =
             new ChatCompletionChunk("c", "chat.completion.chunk", 0, "m", List.of(), null);
     private static final ChatContext CONTEXT =
-            new ChatContext(null, new ProviderConfig("p", "fake", "http://x", "k"));
+            new ChatContext(null, null, new ProviderConfig("p", "fake", "http://x", "k"));
 
     private final List<String> calls = new ArrayList<>();
     private final ProviderAdapter provider = new FakeAdapter();

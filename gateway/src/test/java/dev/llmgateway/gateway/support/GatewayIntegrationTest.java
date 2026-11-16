@@ -33,19 +33,29 @@ public abstract class GatewayIntegrationTest {
 
     protected final HttpClient http = HttpClient.newBuilder().version(HttpClient.Version.HTTP_1_1).build();
 
+    /** The test client's API key. Only its SHA-256 hash goes into the gateway's config. */
+    protected static final String TEST_KEY = "test-client-key";
+
     @DynamicPropertySource
     static void pointProvidersAtMock(DynamicPropertyRegistry registry) {
         registry.add("gateway.providers.mock-openai.base-url", MockProviderServer::baseUrl);
         registry.add("gateway.providers.mock-anthropic.base-url", MockProviderServer::baseUrl);
+        registry.add("gateway.auth.clients[0].id", () -> "test-client");
+        registry.add("gateway.auth.clients[0].key-sha256", () -> TestKeys.sha256(TEST_KEY));
+        registry.add("gateway.auth.clients[0].requests-per-minute", () -> 1_000_000);
+        registry.add("gateway.auth.clients[0].tokens-per-minute", () -> 1_000_000_000L);
+    }
+
+    /** A POST to the chat endpoint with JSON content type and the test client's key. */
+    protected HttpRequest.Builder chatRequest() {
+        return HttpRequest.newBuilder(URI.create("http://localhost:" + port + "/v1/chat/completions"))
+                .header("Content-Type", "application/json")
+                .header("Authorization", "Bearer " + TEST_KEY);
     }
 
     protected <T> HttpResponse<T> post(String body, HttpResponse.BodyHandler<T> handler)
             throws IOException, InterruptedException {
-        HttpRequest request = HttpRequest.newBuilder(URI.create("http://localhost:" + port + "/v1/chat/completions"))
-                .header("Content-Type", "application/json")
-                .POST(HttpRequest.BodyPublishers.ofString(body))
-                .build();
-        return http.send(request, handler);
+        return http.send(chatRequest().POST(HttpRequest.BodyPublishers.ofString(body)).build(), handler);
     }
 
     protected HttpResponse<String> post(String body) throws IOException, InterruptedException {
