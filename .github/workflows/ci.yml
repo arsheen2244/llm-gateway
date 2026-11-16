@@ -24,6 +24,19 @@ jobs:
       - name: Build and test
         run: ./mvnw -B verify
 
+      # Raw logs need a GitHub login; the run summary page does not. On failure, copy
+      # each failing test and its first lines of error into the summary so anyone
+      # viewing the run can see what broke.
+      - name: Publish test failures to the run summary
+        if: failure()
+        run: |
+          {
+            echo "## Failing tests"
+            echo '```'
+            grep -h -A 6 -E "<<< (FAILURE|ERROR)!" */target/surefire-reports/*.txt | head -n 300 || echo "No test failures found: the build failed elsewhere (see logs)."
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
   docker:
     name: Docker Compose smoke test
     runs-on: ubuntu-latest
