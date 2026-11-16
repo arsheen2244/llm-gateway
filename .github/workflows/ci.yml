@@ -1,8 +1,9 @@
 name: CI
 
 on:
+  # Every branch, so work-in-progress branches get the Docker-only tests (Redis) too.
   push:
-    branches: [main]
+    branches: ['**']
   pull_request:
 
 jobs:

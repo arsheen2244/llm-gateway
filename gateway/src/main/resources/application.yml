@@ -1,6 +1,13 @@
 spring:
   application:
     name: llm-gateway
+  data:
+    redis:
+      # Only used when gateway.rate-limit.backend=redis.
+      url: ${REDIS_URL:redis://localhost:6379}
+      # Short, so a slow or dead Redis can't add much latency to requests (design note 20).
+      timeout: 100ms
+      connect-timeout: 200ms
   threads:
     virtual:
       # Each request runs on a virtual thread, so blocking code (waiting on the

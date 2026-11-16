@@ -487,3 +487,49 @@ request. The request already happened, and accounting must not turn a success in
 **Effect on the week-1 benchmark:** the limiter now sits in every request's path. The
 `load-test` demo client has limits high enough never to throttle, so the overhead
 benchmark still measures the gateway, now including the limiter.
+
+## 20. Redis backend: one atomic script, Redis's clock, keys that stay together
+
+**Chosen:** `RedisRateLimiter` keeps each client's window in Redis, so every gateway
+instance sees the same counts. All the logic lives in two Lua scripts (`acquire.lua`,
+`reconcile.lua`, written by the project owner). The Java class only builds keys and
+arguments and translates the replies.
+
+**Why a Lua script:** Redis runs a script as one atomic step. "Check both limits, then
+record the request" therefore cannot interleave with another instance doing the same.
+Separate commands (`ZCARD`, then `ZADD`) would let two instances both see "9 of 10 used"
+and both admit, a classic race.
+*Rejected:* `MULTI`/`EXEC` transactions with `WATCH`, which are optimistic. Under
+contention on one hot key they retry repeatedly, and the check-then-act logic would live
+in Java across several round trips.
+
+**Why Redis's clock (`TIME`):** three gateway instances have three slightly different
+clocks. If each passed its own "now", the same entry would expire at different moments
+depending on which instance looked. Redis is the one shared reference. (Since Redis 5,
+scripts are replicated by their effects, so calling `TIME` inside a script is safe.)
+
+**Key layout:** `rl:{clientId}:log` (sorted set of entries scored by admit time),
+`rl:{clientId}:tokens` (hash: entry → tokens), `rl:{clientId}:sum` (running total).
+- The `{clientId}` part is a **Redis Cluster hash tag**. Only the text in braces decides
+  which node owns a key, so a client's three keys always share a node, which a multi-key
+  script requires. It costs nothing on a single Redis and keeps the design cluster-ready.
+- Client ids are validated to `[A-Za-z0-9._-]`, so an id can't inject braces or `:`.
+- Keys get a TTL of one window on every admit, so a client that goes quiet leaves nothing
+  behind.
+
+**Sending scripts:** Spring's `RedisScript` uses `EVALSHA` (the script's SHA-1), so the
+body isn't re-sent on every call. If Redis doesn't know the script yet (restart, new
+node), Spring falls back to `EVAL` automatically.
+
+**Timeouts:** command timeout 100 ms and connect timeout 200 ms. A slow or dead Redis must
+not add seconds to every request. What happens when Redis is unreachable is note 21.
+
+**Testing without Docker locally:** the Redis tests look for Redis in this order:
+`REDIS_URL`, then a Testcontainers Redis if Docker is available (CI), otherwise they are
+skipped. `RedisRateLimiterTest` runs the same `RateLimiterContractTest` cases as the
+in-memory limiter. `RedisScriptTest` adds storage, TTL and cleanup checks, plus two limiter
+instances on separate connections racing 100 requests against a limit of 10.
+
+**Default backend:** `in-memory` in `application.yml`, so tests and single-instance runs
+need no Redis. Multi-instance deployments must set `gateway.rate-limit.backend=redis`
+(Docker Compose does).
