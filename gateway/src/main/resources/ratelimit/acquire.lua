@@ -3,7 +3,7 @@ acquire.lua: atomically check a client's sliding-window limits and, if the reque
 record it. Called by RedisRateLimiter.tryAcquire. Redis runs the whole script as one
 atomic step, so no other gateway instance can act between the check and the update.
 
-STATUS: stub, to be written by the project owner (week 2, step 5).
+Implementation: see the code below this comment, and design note 21.
 The behaviour must pass RateLimiterContractTest and RedisScriptTest.
 
 KEYS (all three share the hash tag {clientId}, so they live on one Redis node)
@@ -47,4 +47,92 @@ RULES
      and strings would break the Java side, which checks the reply's shape.
 --]]
 
-return redis.error_reply('acquire.lua is not implemented yet (week 2, step 5)')
+local log_key, tokens_key, sum_key = KEYS[1], KEYS[2], KEYS[3]
+local window_ms      = tonumber(ARGV[1])
+local max_requests   = tonumber(ARGV[2])
+local max_tokens     = tonumber(ARGV[3])
+local estimate       = tonumber(ARGV[4])
+local reservation_id = ARGV[5]
+
+-- Rule 1: Redis's own clock, in milliseconds.
+local time = redis.call('TIME')
+local now_ms = tonumber(time[1]) * 1000 + math.floor(tonumber(time[2]) / 1000)
+
+-- Rule 2: drop every entry admitted at or before (now - window), from the log AND the
+-- hash, and subtract their tokens from the running sum. Done in batches because Lua's
+-- unpack() cannot spread thousands of values into one call.
+local function expire_old_entries(cutoff)
+  local freed = 0
+  while true do
+    local batch = redis.call('ZRANGEBYSCORE', log_key, '-inf', cutoff, 'LIMIT', 0, 500)
+    if #batch == 0 then
+      break
+    end
+    local amounts = redis.call('HMGET', tokens_key, unpack(batch))
+    for i = 1, #amounts do
+      freed = freed + (tonumber(amounts[i]) or 0)
+    end
+    redis.call('ZREM', log_key, unpack(batch))
+    redis.call('HDEL', tokens_key, unpack(batch))
+  end
+  local sum = tonumber(redis.call('GET', sum_key)) or 0
+  if freed > 0 then
+    sum = math.max(0, sum - freed)
+    -- KEEPTTL: a plain SET would silently remove the key's expiry (rule 7).
+    redis.call('SET', sum_key, sum, 'KEEPTTL')
+  end
+  return sum
+end
+
+local sum = expire_old_entries(now_ms - window_ms)
+local count = redis.call('ZCARD', log_key)
+local remaining_requests = max_requests - count
+local remaining_tokens = max_tokens - sum
+
+-- Rule 3: an estimate above the whole limit can never fit. Record nothing.
+if estimate > max_tokens then
+  return { 0, remaining_requests, remaining_tokens, -1 }
+end
+
+-- Rule 4: admit only if both limits hold with this request included.
+if count + 1 <= max_requests and sum + estimate <= max_tokens then
+  redis.call('ZADD', log_key, now_ms, reservation_id)
+  redis.call('HSET', tokens_key, reservation_id, estimate)
+  redis.call('INCRBY', sum_key, estimate)
+  -- Rule 7: everything a quiet client stored disappears one window after its last admit.
+  redis.call('PEXPIRE', log_key, window_ms)
+  redis.call('PEXPIRE', tokens_key, window_ms)
+  redis.call('PEXPIRE', sum_key, window_ms)
+  return { 1, remaining_requests - 1, remaining_tokens - estimate, 0 }
+end
+
+-- Rule 5: rejected. Walk entries oldest first, pretending each has expired, until this
+-- request would fit; the answer is when that entry really leaves the window.
+-- Paged, so a client with a huge log doesn't load it all at once.
+local page_size = 100
+local start = 0
+local c, s = count, sum
+while true do
+  local page = redis.call('ZRANGE', log_key, start, start + page_size - 1, 'WITHSCORES')
+  if #page == 0 then
+    break
+  end
+  local ids = {}
+  for i = 1, #page, 2 do
+    ids[#ids + 1] = page[i]
+  end
+  local amounts = redis.call('HMGET', tokens_key, unpack(ids))
+  for j = 1, #ids do
+    c = c - 1
+    s = s - (tonumber(amounts[j]) or 0)
+    if c + 1 <= max_requests and s + estimate <= max_tokens then
+      local admitted_at = tonumber(page[2 * j])
+      return { 0, remaining_requests, remaining_tokens, admitted_at + window_ms - now_ms }
+    end
+  end
+  start = start + page_size
+end
+
+-- Not reachable when estimate <= max_tokens (an empty window always fits), but never
+-- return nothing: the Java side requires four integers.
+return { 0, remaining_requests, remaining_tokens, window_ms }

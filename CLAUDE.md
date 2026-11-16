@@ -17,8 +17,8 @@ limiting, resilience, caching and cost tracking over a five-week roadmap (see RE
   was rejected, and why. Add new numbered notes; mark superseded ones rather than deleting them.
 - **Never report a benchmark number that wasn't actually measured.** Invalid runs (errors,
   crashes) are discarded, not reported.
-- Week 2: the owner writes the first version of the rate-limit **Lua script** personally.
-  Provide the contract and tests, then review; don't write it for them.
+- Week 2 rate-limit Lua scripts: the owner first planned to write them, then asked
+  Claude to. They must still be explained clearly enough for the owner to defend them.
 
 ## Stack
 

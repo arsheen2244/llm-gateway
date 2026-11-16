@@ -492,7 +492,7 @@ benchmark still measures the gateway, now including the limiter.
 
 **Chosen:** `RedisRateLimiter` keeps each client's window in Redis, so every gateway
 instance sees the same counts. All the logic lives in two Lua scripts (`acquire.lua`,
-`reconcile.lua`, written by the project owner). The Java class only builds keys and
+`reconcile.lua`; note 21). The Java class only builds keys and
 arguments and translates the replies.
 
 **Why a Lua script:** Redis runs a script as one atomic step. "Check both limits, then
@@ -522,7 +522,7 @@ body isn't re-sent on every call. If Redis doesn't know the script yet (restart,
 node), Spring falls back to `EVAL` automatically.
 
 **Timeouts:** command timeout 100 ms and connect timeout 200 ms. A slow or dead Redis must
-not add seconds to every request. What happens when Redis is unreachable is note 21.
+not add seconds to every request. What happens when Redis is unreachable is note 22.
 
 **Testing without Docker locally:** the Redis tests look for Redis in this order:
 `REDIS_URL`, then a Testcontainers Redis if Docker is available (CI), otherwise they are
@@ -533,3 +533,52 @@ instances on separate connections racing 100 requests against a limit of 10.
 **Default backend:** `in-memory` in `application.yml`, so tests and single-instance runs
 need no Redis. Multi-instance deployments must set `gateway.rate-limit.backend=redis`
 (Docker Compose does).
+
+## 21. The Lua scripts: how acquire and reconcile work
+
+The project owner planned to write these, then asked for them to be written for them, so
+this note explains them step by step.
+
+**`acquire.lua`, in order:**
+1. **Read Redis's clock:** `TIME` returns seconds and microseconds, converted to whole
+   milliseconds.
+2. **Expire old entries:** find entries with score ≤ now − window
+   (`ZRANGEBYSCORE ... LIMIT 0 500`), look up their tokens (`HMGET`), remove them from the
+   log (`ZREM`) and the hash (`HDEL`), and subtract their tokens from the running sum. This
+   repeats in batches of 500 until none are left.
+3. **Never fits?** If the estimate is above the whole token limit, return `-1` and store
+   nothing.
+4. **Fits?** If `count + 1 ≤ max_requests` and `sum + estimate ≤ max_tokens`, store the
+   entry in all three keys (`ZADD`, `HSET`, `INCRBY`) and set each key's expiry to one
+   window (`PEXPIRE`).
+5. **Rejected:** store nothing. Walk entries oldest-first, 100 at a time
+   (`ZRANGE ... WITHSCORES` + `HMGET`), subtracting each one's count and tokens, until
+   the request would fit. `retry_after_ms` is when that entry really leaves:
+   `admitted_at + window − now`.
+
+**`reconcile.lua`:** the same expiry, then look the entry up in the hash. If it's gone,
+change nothing and return `{0, sum}`. If it's there, store the actual tokens and adjust the
+sum by the difference (`INCRBY`, which keeps the key's expiry).
+
+**Details worth being able to explain:**
+- **Why batches:** Lua's `unpack()` spreads a table into function arguments, and Lua has a
+  limit of a few thousand arguments per call. The `load-test` client may hold up to a
+  million entries, so the scripts never unpack an unbounded list.
+- **Why `SET ... KEEPTTL`:** a plain `SET` replaces a key's value *and removes its expiry*.
+  Without `KEEPTTL`, writing the reduced sum back would make the sum key live forever
+  (Redis 6+).
+- **The running sum vs summing the hash every time:** `HVALS` plus adding everything up
+  would be simpler, but costs O(entries) on every request. The running sum makes the
+  common path (admit) constant-time apart from expiry, which only touches entries that
+  actually expired.
+- **`false` from Redis:** a missing hash field comes back to Lua as `false`, not `nil`.
+  `tonumber(false)` is `nil`, and the `or 0` turns it into a safe 0.
+- **Integers only in replies:** Redis converts Lua numbers to integers in a reply. The Java
+  side rejects any other shape with a clear message.
+- **Duplicated expiry code:** Lua scripts cannot import each other. Redis 7 *Functions*
+  (`FUNCTION LOAD`) can share code, but they have to be loaded into Redis as a separate
+  deployment step. Two copies of 20 lines was the simpler trade.
+
+**Cost per call:** a handful of commands on one client's keys, plus work proportional to
+the number of entries that expired since the last call. The rejected path additionally
+walks only as many entries as it needs to.
