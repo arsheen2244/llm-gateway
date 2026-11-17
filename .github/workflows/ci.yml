@@ -32,12 +32,18 @@ jobs:
         if: failure()
         run: |
           # Skip each file's "Tests run: ... <<< FAILURE!" summary line; match the per-test
-          # lines, whose next line is the assertion or exception message.
+          # lines. The message that follows can span several lines (AssertJ puts
+          # "expected / but was" on their own lines), so collect lines until the stack trace
+          # ("\tat ...") starts, joined with %0A, which GitHub shows as a line break.
           awk '/<<< (FAILURE|ERROR)!/ && !/^Tests run:/ {
-                 title = $1; getline msg
-                 gsub(/%/, "%25", msg); gsub(/\r/, "", msg)
+                 title = $1; msg = ""
+                 for (i = 0; i < 8 && (getline line) > 0; i++) {
+                   if (line ~ /^\tat /) break
+                   gsub(/\r/, "", line); gsub(/%/, "%25", line)
+                   msg = (msg == "") ? line : msg "%0A" line
+                 }
                  level = (++n <= 10) ? "error" : "warning"
-                 printf "::%s title=%s::%s\n", level, title, substr(msg, 1, 600)
+                 printf "::%s title=%s::%s\n", level, title, substr(msg, 1, 900)
                }' */target/surefire-reports/*.txt | head -n 20
           echo "Failing tests in total: $(grep -h -c -E '<<< (FAILURE|ERROR)!' */target/surefire-reports/*.txt | paste -sd+ | bc)"
 
