@@ -77,6 +77,15 @@ gateway:
       window: 30s
       open-duration: 30s
       half-open-trial-calls: 3
+    # Hedged requests for non-streaming calls (design note 30).
+    hedging:
+      enabled: true
+      percentile: 0.95      # hedge after the recent p95 latency...
+      floor: 300ms          # ...but never sooner than this
+      default-delay: 2s     # until min-samples successful calls are known
+      min-samples: 20
+      sample-window: 200
+      max-ratio: 0.05       # hedges for at most 5% of requests
 
   # Per-client limits come from gateway.auth.clients (design notes 18-19).
   rate-limit:

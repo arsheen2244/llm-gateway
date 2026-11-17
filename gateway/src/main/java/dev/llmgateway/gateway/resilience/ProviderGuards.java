@@ -8,14 +8,18 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
 /**
- * One circuit breaker and one retry budget per provider instance, created on first use.
- * Per instance, not per model: an outage hits everything served by that endpoint.
+ * One circuit breaker, one retry budget and one hedge budget per provider instance, created
+ * on first use. Per instance, not per model: an outage hits everything served by that endpoint.
  */
 @Component
 public class ProviderGuards {
 
-    /** What protects one provider. */
-    public record Guard(CircuitBreaker breaker, RetryBudget budget) {
+    /**
+     * What protects one provider.
+     *
+     * @param hedgeBudget limits hedges to a fraction of requests (no per-second floor)
+     */
+    public record Guard(CircuitBreaker breaker, RetryBudget budget, RetryBudget hedgeBudget) {
     }
 
     private final ResilienceProperties properties;
@@ -36,6 +40,7 @@ public class ProviderGuards {
         return guards.computeIfAbsent(providerName, name -> new Guard(
                 new SlidingWindowCircuitBreaker(properties.breaker().toConfig(), clock),
                 new RetryBudget(properties.retryBudgetRatio(), properties.retryBudgetMinPerSecond(),
-                        properties.retryBudgetWindow(), clock)));
+                        properties.retryBudgetWindow(), clock),
+                new RetryBudget(properties.hedging().maxRatio(), 0, properties.retryBudgetWindow(), clock)));
     }
 }

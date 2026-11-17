@@ -61,30 +61,35 @@ public class ResilientExecutor implements ChatInterceptor.Chain {
     private final ResilienceProperties properties;
     private final Backoff backoff;
     private final Sleeper sleeper;
+    private final Hedger hedger;
 
     @Autowired
     public ResilientExecutor(AdapterRegistry adapters, ProviderCaller caller, ProviderGuards guards,
-                             ResilienceProperties properties) {
+                             ResilienceProperties properties, Hedger hedger) {
         this(adapters, caller, guards, properties,
                 new Backoff(properties.backoffBase(), properties.backoffCap(),
                         () -> ThreadLocalRandom.current().nextDouble()),
-                ResilientExecutor::sleepFor);
+                ResilientExecutor::sleepFor, hedger);
     }
 
     public ResilientExecutor(AdapterRegistry adapters, ProviderCaller caller, ProviderGuards guards,
-                             ResilienceProperties properties, Backoff backoff, Sleeper sleeper) {
+                             ResilienceProperties properties, Backoff backoff, Sleeper sleeper,
+                             Hedger hedger) {
         this.adapters = adapters;
         this.caller = caller;
         this.guards = guards;
         this.properties = properties;
         this.backoff = backoff;
         this.sleeper = sleeper;
+        this.hedger = hedger;
     }
 
     @Override
     public ChatCompletionResponse complete(ChatContext context) {
-        return execute(context, (provider, request) -> caller.complete(
-                adapters.forType(provider.type()), provider, request, new CallControl()), () -> false);
+        // Non-streaming calls may be hedged (note 30); each started call gets its own CallControl.
+        return execute(context, (provider, request, guard) -> hedger.call(provider.name() + "|" + request.model(),
+                guard, control -> caller.complete(adapters.forType(provider.type()), provider, request, control)),
+                () -> false);
     }
 
     /** Streams fail over only until the first chunk has been handed on towards the client. */
@@ -95,7 +100,7 @@ public class ResilientExecutor implements ChatInterceptor.Chain {
             delivered[0] = true;
             sink.accept(chunk);
         };
-        execute(context, (provider, request) -> {
+        execute(context, (provider, request, guard) -> {
             caller.stream(adapters.forType(provider.type()), provider, request, tracking, new CallControl());
             return null;
         }, () -> delivered[0]);
@@ -103,7 +108,7 @@ public class ResilientExecutor implements ChatInterceptor.Chain {
 
     @FunctionalInterface
     private interface Attempt<T> {
-        T call(ProviderConfig provider, ChatCompletionRequest request);
+        T call(ProviderConfig provider, ChatCompletionRequest request, ProviderGuards.Guard guard);
     }
 
     private <T> T execute(ChatContext context, Attempt<T> attempt, BooleanSupplier reachedClient) {
@@ -141,7 +146,7 @@ public class ResilientExecutor implements ChatInterceptor.Chain {
                 MDC.put(LogFields.PROVIDER, provider.name());
                 MDC.put(LogFields.ATTEMPTS, String.valueOf(attempts));
                 try {
-                    T result = attempt.call(provider, request);
+                    T result = attempt.call(provider, request, guard);
                     report(guard, provider, Outcome.SUCCESS);
                     return result;
                 } catch (ProviderException e) {

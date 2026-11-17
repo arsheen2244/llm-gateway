@@ -47,11 +47,12 @@ jobs:
                }' */target/surefire-reports/*.txt | head -n 20
           echo "Failing tests in total: $(grep -h -c -E '<<< (FAILURE|ERROR)!' */target/surefire-reports/*.txt | paste -sd+ | bc)"
 
-      # Also public: did the Docker-only (Redis) tests run, or were they skipped?
-      - name: Report Redis test counts
+      # Also public: did the Docker-only (Redis) tests run, or were they skipped? Plus the
+      # resilience tests, so their counts are visible without signing in.
+      - name: Report Redis and resilience test counts
         if: always()
         run: |
-          for f in gateway/target/surefire-reports/*Redis*.txt gateway/target/surefire-reports/*TwoGateway*.txt; do
+          for f in gateway/target/surefire-reports/*Redis*.txt gateway/target/surefire-reports/*TwoGateway*.txt \n                   gateway/target/surefire-reports/*resilience*.txt; do
             [ -f "$f" ] || continue
             echo "::notice title=$(basename "$f" .txt)::$(grep -m1 'Tests run' "$f")"
           done

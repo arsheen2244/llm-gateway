@@ -941,3 +941,60 @@ all exhausted -> the last real failure, or 503 provider_circuit_open if every br
 
 **Effect on existing behaviour:** a retryable error from a single-provider route is now tried
 twice before the client sees it. The status codes are unchanged.
+
+## 30. Hedged requests (non-streaming)
+
+**What it does:** if a non-streaming call hasn't answered within the hedge delay, the gateway
+sends the same request again and uses whichever answer comes first; the other call is
+cancelled through its `CallControl` (note 26), which aborts its socket.
+
+**Hedge delay (owner's choice: observed latency):** the **p95** of recent successful call
+latencies for that provider + model (the last 200 calls, kept in a ring buffer), never below
+a **300 ms floor**, and a fixed **2 s default** until 20 samples exist. This is the
+"tail at scale" idea: with the delay at p95, about 5% of calls are slow enough to hedge,
+and those are the calls that would otherwise make up the tail.
+*Rejected:* a fixed delay per route. It is simpler and predictable, but has to be retuned by
+hand whenever a provider speeds up or slows down.
+
+**Limits:**
+- **Hedge budget:** per provider, hedges for at most **5%** of requests over a 10 s window
+  (the same mechanism as the retry budget, without a per-second floor). A provider that
+  becomes uniformly slow can't make the gateway double its traffic.
+- **Only while the breaker is CLOSED.** A provider that is open or half-open (recovering)
+  gets no extra load.
+- **Non-streaming only:** a stream's "answer" is a sequence of chunks already being relayed,
+  and two competing streams can't be merged.
+- **Hedge to the same provider.** The tail latency of an LLM call usually comes from the
+  request (queueing, a slow replica), not the provider as a whole, so a second try at the
+  same provider often lands somewhere faster. Failing over to *another* provider is the
+  executor's job when a call fails (note 27).
+
+**Breaker accounting:** the hedge is part of the same attempt, not a separate vote. The
+breaker sees one result: the winner's success, or the primary's failure if both fail.
+
+**Threads and logging:** the primary (and the hedge) run on virtual threads while the request
+thread waits for the first success (`CompletableFuture`s, with a small "first success or both
+failed" combiner). The request's MDC (request ID, client, model) is copied to those threads,
+which closes the follow-up from note 14. A hedged request is logged and marked `hedged=true`
+in the access log.
+
+**Known costs and biases:**
+- **A cancelled LLM request may still be billed.** The provider may already have generated
+  tokens we never read. Hedging trades money for tail latency, which is one more reason for
+  the 5% cap.
+- **Survivorship bias:** the cancelled loser contributes no latency sample, so the recorded
+  p95 can drift slightly low. The floor limits how low the delay can go.
+- **LLM latency depends on output length,** so one p95 per provider + model mixes short and
+  long completions. A finer key (e.g. by `max_tokens` bucket) is a possible refinement.
+- Every non-streaming call now runs on a second virtual thread (so the request thread can
+  wait with a timeout). That costs microseconds, which is negligible next to an LLM call.
+
+**Tests:**
+- `HedgerTest` (fake calls with controlled timing): a fast call isn't hedged; a slow primary
+  is hedged, the hedge wins and the primary's `CallControl` is cancelled; a primary that
+  answers first still wins and cancels the hedge; when both fail the primary's error is
+  reported; no hedge when the budget is spent or the breaker isn't closed; the delay moves
+  from the default to max(floor, p95) after enough samples; the call sees the caller's MDC.
+- `LatencyTrackerTest`: percentiles, and old samples being overwritten.
+- `HedgingIntegrationTest` (a mock that is always slow): a hedge really reaches the provider
+  (2 requests for 1 client call) and the client gets one answer; streams are never hedged.

@@ -40,6 +40,10 @@ import org.junit.jupiter.api.Test;
  */
 class ResilientExecutorTest {
 
+    /** Hedging has its own tests (HedgerTest); here every attempt is a single call. */
+    private static final ResilienceProperties.Hedging NO_HEDGING = new ResilienceProperties.Hedging(
+            false, 0.95, Duration.ofMillis(300), Duration.ofSeconds(2), 20, 200, 0.05);
+
     private static final ChatCompletionRequest REQUEST = new ChatCompletionRequest("m",
             List.of(new ChatMessage("user", "hi")), null, null, null, null, null, null);
 
@@ -56,7 +60,8 @@ class ResilientExecutorTest {
     private final ProviderCaller caller = new ProviderCaller(gatewayProperties);
     private final ResilienceProperties resilience = new ResilienceProperties(2, Duration.ofMillis(100),
             Duration.ofSeconds(2), 0.1, 1, Duration.ofSeconds(10),
-            new ResilienceProperties.Breaker(0.5, 4, Duration.ofSeconds(30), Duration.ofSeconds(30), 3));
+            new ResilienceProperties.Breaker(0.5, 4, Duration.ofSeconds(30), Duration.ofSeconds(30), 3),
+            NO_HEDGING);
     private ProviderGuards guards = new ProviderGuards(resilience, clock);
     private ResilientExecutor executor = executor(resilience);
 
@@ -155,7 +160,7 @@ class ResilientExecutorTest {
     @Test
     void exhaustedRetryBudgetFailsOverWithoutRetrying() {
         ResilienceProperties noBudget = new ResilienceProperties(2, Duration.ofMillis(100), Duration.ofSeconds(2),
-                0.0, 0, Duration.ofSeconds(10), resilience.breaker());
+                0.0, 0, Duration.ofSeconds(10), resilience.breaker(), NO_HEDGING);
         executor = executor(noBudget);
         adapter.script("a", fail(503));
         adapter.script("b", ok());
@@ -236,7 +241,8 @@ class ResilientExecutorTest {
         guards = new ProviderGuards(properties, clock);
         AdapterRegistry registry = new AdapterRegistry(List.of(adapter), router);
         return new ResilientExecutor(registry, caller, guards, properties,
-                new Backoff(properties.backoffBase(), properties.backoffCap(), () -> 0.5), sleeps::add);
+                new Backoff(properties.backoffBase(), properties.backoffCap(), () -> 0.5), sleeps::add,
+                new Hedger(properties));
     }
 
     private ChatContext context() {
