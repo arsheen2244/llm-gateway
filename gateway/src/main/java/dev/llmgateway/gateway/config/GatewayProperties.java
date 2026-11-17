@@ -39,8 +39,28 @@ public record GatewayProperties(
         }
     }
 
-    /** {@code modelPattern} is an exact name, or a prefix ending in "*" such as "gpt-*". */
-    public record Route(@NotBlank String modelPattern, @NotBlank String provider) {
+    /**
+     * {@code modelPattern} is an exact name, or a prefix ending in "*" such as "gpt-*".
+     * Set exactly one of {@code provider} (one provider) or {@code providers} (an ordered
+     * failover list; design note 25). The router checks this at startup.
+     */
+    public record Route(@NotBlank String modelPattern, String provider, List<@Valid Target> providers) {
+
+        /** The single-provider form, as used before week 3. */
+        public static Route single(String modelPattern, String provider) {
+            return new Route(modelPattern, provider, null);
+        }
+    }
+
+    /**
+     * One entry of a failover list.
+     *
+     * @param name  the provider instance
+     * @param model the model name to send to that provider; empty means "the model the
+     *              client asked for". Needed when failing over across protocols, e.g. from
+     *              an OpenAI model to an Anthropic one.
+     */
+    public record Target(@NotBlank String name, String model) {
     }
 
     /**

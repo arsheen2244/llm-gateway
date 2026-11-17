@@ -715,3 +715,34 @@ real 200 (it previously accepted any HTTP answer, which a 502 from nginx would h
   favour busy periods.
 - One run per backend on a shared CI runner: the request-limit result is structural (exact
   either way), but the token percentages will vary a little between runs.
+
+## 25. Failover lists in routing
+
+**Chosen:** a route names either one provider (`provider: openai`, the pre-week-3 form,
+still valid) or an ordered list:
+
+```yaml
+- model-pattern: "gpt-*"
+  providers:
+    - name: openai
+    - name: anthropic
+      model: claude-sonnet-4-5
+```
+
+`ModelRouter.targets(model)` returns the list as `ProviderTarget`s (provider + optional
+model override), in order. The resilient executor (note 27) walks it.
+
+**Why a per-entry model override:** failing over between providers of the *same* protocol
+(two OpenAI-compatible endpoints) can keep the model name. Failing over *across* protocols
+cannot, because `gpt-4o` doesn't exist at Anthropic. The override says which model stands in.
+The client's request (and the model name the rate limiter, logs and later the cache see)
+is unchanged; only the call to that provider uses the override.
+
+**Checked at startup:** each route sets exactly one of the two forms, and every entry names
+a configured provider.
+
+**Rejected:**
+- *Separate "fallback" config per provider* (provider A falls back to B): it hides the
+  order inside provider definitions and makes per-model differences impossible.
+- *Weighted load balancing across providers:* useful for spreading cost, but a different
+  feature. Failover is about order of preference, not about splitting traffic.

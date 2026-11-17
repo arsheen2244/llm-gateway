@@ -70,7 +70,7 @@ class ProviderHttpClientTest {
         // Read timeout 1 s: shorter than the steady stream's total, longer than its gaps.
         GatewayProperties properties = new GatewayProperties(
                 Map.of("p", new Provider("openai", "http://unused", "k")),
-                List.of(new Route("*", "p")),
+                List.of(Route.single("*", "p")),
                 new Timeouts(Duration.ofSeconds(2), Duration.ofSeconds(1)));
         HttpClientConfig config = new HttpClientConfig();
         httpClient = config.providerHttpClient(properties);

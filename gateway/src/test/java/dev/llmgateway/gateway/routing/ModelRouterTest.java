@@ -19,9 +19,9 @@ class ModelRouterTest {
             "mock-openai", new Provider("openai", "http://mock", "k3"));
 
     private final ModelRouter router = new ModelRouter(new GatewayProperties(PROVIDERS, List.of(
-            new Route("mock-claude-*", "mock-anthropic"),
-            new Route("mock-*", "mock-openai"),
-            new Route("gpt-4o", "openai")), null));
+            Route.single("mock-claude-*", "mock-anthropic"),
+            Route.single("mock-*", "mock-openai"),
+            Route.single("gpt-4o", "openai")), null));
 
     @Test
     void firstMatchingRuleWins() {
@@ -49,7 +49,7 @@ class ModelRouterTest {
 
     @Test
     void routeToUndefinedProviderFailsAtStartup() {
-        GatewayProperties broken = new GatewayProperties(PROVIDERS, List.of(new Route("x-*", "nope")), null);
+        GatewayProperties broken = new GatewayProperties(PROVIDERS, List.of(Route.single("x-*", "nope")), null);
 
         assertThatThrownBy(() -> new ModelRouter(broken))
                 .isInstanceOf(IllegalStateException.class)
