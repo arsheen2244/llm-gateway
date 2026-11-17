@@ -666,3 +666,52 @@ addresses, which is acceptable for a local demo; production would drop it.
 **Startup order:** Redis has a health check and the gateways wait for it. nginx can come
 up before the gateways are ready and answers 502 meanwhile, so the smoke test waits for a
 real 200 (it previously accepted any HTTP answer, which a 502 from nginx would have passed).
+
+## 24. Measured drift: shared Redis vs per-instance limiting
+
+**Method** (`load-test/rate-limit-drift.js`, workflow `rate-limit-drift.yml`):
+- Docker Compose with nginx (round robin), three gateway instances, Redis and the mock
+  (100 ms latency), on a GitHub-hosted runner. Each backend ran on **its own runner**.
+- Two demo clients, each with one binding limit: `drift-requests` (300 requests/min) and
+  `drift-tokens` (3,000 tokens/min; requests use `max_tokens: 100`, so each reserves 103
+  and actually uses 13).
+- k6 offered **25 requests/s per client (5× the request limit)** for 3 minutes, at a
+  constant arrival rate. The offer must exceed the worst case (3 instances × the limit), or
+  per-instance limiting could not show its full overshoot.
+- `drift_report.py` records every admitted request (and its actual tokens) with its time,
+  slides a 60 s window across the run one second at a time, and reports the **maximum
+  admitted in any 60 s window**. That is exactly what "N per minute" promises.
+- Any response other than 200 or 429 fails the run, so an invalid run can't produce
+  numbers. Both runs passed this check.
+
+**Results (2026-11-17, run 44006027643, commit `2b332b9`):**
+
+| Backend | Client | Limit | Max in any 60 s | Drift | Mean per 60 s |
+|---|---|---|---|---|---|
+| Redis (shared) | requests | 300 | 300 | +0.0% | 299.7 |
+| Redis (shared) | tokens | 3,000 | 2,899 | −3.4% | 2,853.7 |
+| In-memory (per instance) | requests | 300 | 900 | +200.0% | 884.5 |
+| In-memory (per instance) | tokens | 3,000 | 8,697 | +189.9% | 8,436.4 |
+
+**What it shows:**
+- **Shared Redis holds the request limit exactly** across three instances: not one rolling
+  minute above 300.
+- **Per-instance limiting admits N× the limit** (here 3×), because each instance grants a
+  full limit of its own. This is why the shared limiter exists.
+- **Tokens err on the strict side with Redis (−3.4%).** While a request is in flight, the
+  window holds its *estimate* (103), not its usage (13). In-flight reservations therefore
+  briefly use budget that reconciling later gives back. This is the price of reserving
+  before the call, and it errs in the safe direction.
+- **Admissions come in bursts.** With 5× the limit on offer, a sliding log admits the
+  whole minute's allowance within seconds, then refuses until entries expire. A token
+  bucket would spread the same allowance evenly. Choosing between them depends on whether
+  clients or providers mind bursts.
+
+**Limits of the measurement:**
+- Admission times are k6's response times, not Redis's admit times. They differ by
+  roughly the request latency (~100 ms), so a window can be shifted slightly.
+- Windows only cover the span between the first and last admitted request, which is why
+  there are 72–99 windows rather than ~120. The *maximum* is unaffected; the means slightly
+  favour busy periods.
+- One run per backend on a shared CI runner: the request-limit result is structural (exact
+  either way), but the token percentages will vary a little between runs.
