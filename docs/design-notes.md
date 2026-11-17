@@ -792,3 +792,47 @@ The same `CallControl` is how a losing hedged request will be cancelled (note 30
 - a 1.2 s stream survives a 1 s total (under the 1.5 s stream maximum), while a 3 s
   stream is interrupted;
 - cancelling from another thread ends a stream in under 1 s.
+
+## 28. Circuit breaker: our own state machine (settings chosen by the owner)
+
+**Settings** (`CircuitBreakerConfig.defaults()`): open when **≥ 50%** of calls failed in the
+**last 30 s** *and* there were **≥ 20 calls** in that window; stay open **30 s**; then
+**HALF_OPEN** allows **3 trial calls**: all 3 succeeding closes it (with an empty window),
+any failure reopens it for another 30 s.
+
+**Why a failure *rate* over a *time* window (owner's choice):**
+- *vs consecutive failures:* at high traffic a provider failing 40% of calls rarely
+  produces 5 failures in a row, so a count of consecutive failures would never trip; at
+  low traffic 5 unlucky errors would.
+- *vs the last N calls:* at low traffic "the last 20 calls" can be minutes old, so a
+  recovered provider keeps looking bad. A time window forgets on a schedule.
+- The **minimum calls** guard stops 2 failures out of 3 calls from counting as "67% failing".
+
+**What counts:** timeouts, connection errors, 5xx/529 and provider 429 are *failures*
+(the provider is unhealthy for us). Client errors such as a 400, and hedged calls we
+cancelled, are *ignored*: they say nothing about the provider's health. An ignored result
+also frees a half-open trial slot.
+
+**OPEN → HALF_OPEN happens lazily:** on the first `tryAcquirePermission()` after the open
+period, not by a background timer. No thread is needed, and a provider that nobody calls
+doesn't need to be probed.
+
+**How it differs from Resilience4j** (deliberately written ourselves, as an exercise in
+explaining every line):
+
+| | Resilience4j | Ours |
+|---|---|---|
+| Window | count-based (default) or time-based, configurable | time-based only |
+| Half-open decision | failure *rate* over the permitted trial calls must be below the threshold | *all* trial calls must succeed (simpler and stricter) |
+| Slow calls | can open on a slow-call rate as well as failures | no; slowness is handled by deadlines (note 26) and hedging |
+| Open → half-open | after the wait, optionally by a scheduler (`automaticTransitionFromOpenToHalfOpenEnabled`) | only on the next request |
+| Wait in open state | fixed or a function (e.g. exponential) of attempts | fixed |
+| Classifying exceptions | `recordExceptions`, `ignoreExceptions`, predicates | the caller decides: `onFailure` / `onIgnored` |
+| Extras | event publisher, metrics, `DISABLED` / `FORCED_OPEN` states, registry | none (logging is done by the caller) |
+
+The trade-off: Resilience4j is battle-tested and far more configurable. Ours is a few dozen
+lines whose every behaviour is pinned by `CircuitBreakerTest`, with no dependency, which
+suits a project whose goal is to explain each mechanism.
+
+**Implementation:** `SlidingWindowCircuitBreaker`, written by the project owner (see the
+review in note 29).
