@@ -998,3 +998,47 @@ in the access log.
 - `LatencyTrackerTest`: percentiles, and old samples being overwritten.
 - `HedgingIntegrationTest` (a mock that is always slow): a hedge really reaches the provider
   (2 requests for 1 client call) and the client gets one answer; streams are never hedged.
+
+## 31. Measured resilience (week 3)
+
+**Method** (`load-test/resilience.js`, workflow `resilience-measure.yml`): the normal Compose
+stack (nginx, three gateways, Redis) plus three mocks, each with a base latency of 100 ms:
+`mock-down` answers 500 to everything, `mock-backup` is healthy, and `mock-slow` makes **3%**
+of calls **2 s** slower. k6 offers a constant **20 requests/s** (90 s per outage phase, 180 s
+for the slow provider). Latency percentiles are of *successful* requests. Extra volume is
+counted at the mocks' `/stats` (before and after each phase), not estimated by the gateway.
+Each scenario ran on its own GitHub-hosted runner.
+
+**Results (2026-11-17, run 44021942824, commit `eec4188`):**
+
+| Scenario | Requests | Success | p50 | p95 | p99 | Provider calls per client request |
+|---|---|---|---|---|---|---|
+| Primary down, route [down → backup] | 1,801 | **100.00%** | 107 ms | 111 ms | 367 ms | 1.038 (down 69, backup 1,801) |
+| Primary down, route [down] only | 1,800 | 0.00% | – | – | – | 0.005 (down 9) |
+| Slow provider, hedging on | 3,601 | 100.00% | 106 ms | 113 ms | **410 ms** | 1.024 |
+| Slow provider, hedging off | 3,600 | 100.00% | 106 ms | 112 ms | **2,107 ms** | 1.000 |
+
+**What it shows:**
+- **Failover keeps a full outage invisible to clients:** 100% success. p50/p95 are the backup's
+  own latency; the p99 (367 ms) is the early requests that also paid for the failed primary
+  attempts (and their backoff) before the breakers opened.
+- **The breaker protects the dead provider:** 69 calls in 90 s instead of up to 3,600 (two
+  attempts per request). What remains is the calls that tripped each instance's breaker, plus
+  one half-open trial every 30 s per instance. Retries added only about 4% (1.038 calls per
+  request), so the retry budget and breaker together kept an outage from multiplying load.
+- **Without failover the breaker turns failures into fast 503s:** the dead provider saw 9
+  calls for 1,800 requests. (The report script's "extra volume −99.5%" wording is misleading
+  here. It means "far fewer upstream calls than client requests", because the breaker
+  answered most requests itself.)
+- **Hedging cuts p99 from 2,107 ms to 410 ms for 2.4% more provider calls.** 410 ms is about
+  the 300 ms floor plus one fast (~106 ms) call. The fast 3% got hedged within the 5% budget.
+  The **max is ~2.1 s either way**: a few slow calls were not rescued, because the budget was
+  momentarily spent or both primary and hedge were slow.
+
+**Limits of the measurement:**
+- The mocks are synthetic: fixed 100 ms latency and a clean 3% tail. Real LLM latency varies
+  with output length, so the p95-based hedge delay is noisier in practice (note 30).
+- Each scenario ran once on a shared CI runner. The structural results (100% vs 0%, hedges
+  ≈ the slow fraction) are robust; exact milliseconds will vary between runs.
+- With three instances, each has its own breaker, latency history and budgets, so the
+  numbers include three warm-ups and three sets of half-open trials.
