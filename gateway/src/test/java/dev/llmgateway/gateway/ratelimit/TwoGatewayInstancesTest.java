@@ -91,7 +91,9 @@ class TwoGatewayInstancesTest {
             for (Future<Integer> status : statuses) {
                 counts.merge(status.get(), 1, Integer::sum);
             }
-            assertThat(counts).containsExactlyEntriesOf(Map.of(200, LIMIT, 429, REQUESTS - LIMIT));
+            // Map equality ignores order. (containsExactlyEntriesOf compares in iteration
+            // order, and Map.of's order is deliberately randomized per JVM run.)
+            assertThat(counts).isEqualTo(Map.of(200, LIMIT, 429, REQUESTS - LIMIT));
         }
     }
 
