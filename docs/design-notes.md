@@ -612,6 +612,13 @@ over-admits by at most `instances − 1` per window across the fleet.
   instance, that client gets only 1/N of its limit until Redis returns.
 - A single request larger than one instance's token share is refused as too large.
 - `instances` is static config. If the fleet scales, it must be updated (or discovered).
+- **A timeout means "outcome unknown", not "failed".** Found by the paused-Redis test:
+  the `acquire` that timed out while Redis was paused was still sitting in Redis's socket
+  buffer, and Redis ran it on resuming. That request is then counted twice: locally (where
+  it was admitted) and in Redis. The error is on the strict side (one slot fewer for the
+  client) and happens at most once per instance per outage, because after the first
+  timeout the fallback stops calling Redis until the next probe. Preventing it would need
+  idempotent, cancellable requests, a lot of machinery to save one slot.
 
 **Tested:**
 - `FallbackRateLimiterTest` (unit): falls back to the share, doesn't call Redis on every

@@ -89,7 +89,14 @@ class PausedRedisFallbackTest {
 
         assertThat(limiter.degraded()).isFalse();
         assertThat(recovered.allowed()).isTrue();
-        assertThat(template.opsForZSet().zCard(RedisRateLimiter.keys(client).get(0))).isEqualTo(2);
+        // Recovered means this request was decided by Redis and stored there.
+        String log = RedisRateLimiter.keys(client).get(0);
+        assertThat(template.opsForZSet().score(log, recovered.reservation().id())).isNotNull();
+        // A timeout means "outcome unknown", not "didn't happen": the acquire that timed out
+        // while Redis was paused sat in Redis's socket buffer and ran when Redis resumed, so
+        // that request is counted in Redis as well as locally (one extra entry, at most one
+        // per instance per outage; design note 22). Entries: healthy + possibly ghost + recovered.
+        assertThat(template.opsForZSet().zCard(log)).isBetween(2L, 3L);
     }
 
     private static void pause(boolean paused) {
