@@ -145,7 +145,7 @@ class RateLimitInterceptorTest {
 
     private ChatContext context() {
         return new ChatContext(CLIENT, REQUEST, new ProviderConfig("p", "openai", "http://x", "k"),
-                new ResponseHeaders());
+                new ResponseHeaders(), List.of());
     }
 
     private Limits limits() {

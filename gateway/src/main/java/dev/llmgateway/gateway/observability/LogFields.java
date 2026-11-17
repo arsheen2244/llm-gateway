@@ -10,6 +10,8 @@ public final class LogFields {
     public static final String RATE_LIMITER = "rateLimiter";
     public static final String MODEL = "model";
     public static final String PROVIDER = "provider";
+    /** How many provider calls this request took (retries and failover included). */
+    public static final String ATTEMPTS = "attempts";
     public static final String STREAM = "stream";
     /** For streams: completed, interrupted, or client_disconnected. */
     public static final String STREAM_OUTCOME = "streamOutcome";

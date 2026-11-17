@@ -30,6 +30,7 @@ public class ProviderErrorMapper {
             case STREAM_INTERRUPTED ->
                     ApiError.of(502, "Provider '" + provider + "' stream was interrupted", "upstream_error", "stream_interrupted");
             case NOT_CONFIGURED -> ApiError.of(503, e.getMessage(), "upstream_error", "provider_not_configured");
+            case CIRCUIT_OPEN -> ApiError.of(503, e.getMessage(), "upstream_error", "provider_circuit_open");
         };
     }
 

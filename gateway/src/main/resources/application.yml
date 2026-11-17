@@ -63,6 +63,21 @@ gateway:
     connect: 5s
     read: 60s
 
+  # Failover, retries and circuit breakers (design notes 27-28).
+  resilience:
+    max-attempts-per-provider: 2   # 1 retry, then the next provider in the route
+    backoff-base: 100ms            # full jitter: wait random(0, min(cap, base x 2^retry))
+    backoff-cap: 2s
+    retry-budget-ratio: 0.1        # retries add at most 10% of recent requests...
+    retry-budget-min-per-second: 1 # ...plus 1/s, so quiet providers can still retry
+    retry-budget-window: 10s
+    breaker:
+      failure-rate-threshold: 0.5
+      minimum-calls: 20
+      window: 30s
+      open-duration: 30s
+      half-open-trial-calls: 3
+
   # Per-client limits come from gateway.auth.clients (design notes 18-19).
   rate-limit:
     enabled: true

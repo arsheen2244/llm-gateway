@@ -875,3 +875,69 @@ window's edge to a bucket boundary. Buckets would be the next step at high traff
 
 **Opening clears the window, and so does closing.** Old failures must not count against a
 provider that has just proven itself with three successful trials.
+
+## 27. Failover, retries and the retry budget (`ResilientExecutor`)
+
+**Where it runs:** the executor is the end of the interceptor chain, after rate limiting.
+One client request is therefore one rate-limit reservation, however many provider calls it
+takes, and the reservation is reconciled with the usage of the attempt that answered.
+
+**The loop:**
+
+```
+for each provider in the model's list (note 25):
+    no API key                        -> skip
+    for attempt 1..maxAttemptsPerProvider (default 2):
+        attempt > 1: retry budget empty -> stop retrying this provider
+                     else wait random(0, min(2 s, 100 ms x 2^(retry-1)))
+        breaker refuses (note 28)     -> next provider
+        call it (with deadlines, note 26)
+          success                     -> return
+          client error 400/404/413/422 -> return it now
+          stream already reached client -> return stream_interrupted, no failover
+          retryable (429, 5xx, timeout, I/O) -> next attempt
+          otherwise (e.g. 401/403: our key) -> next provider
+all exhausted -> the last real failure, or 503 provider_circuit_open if every breaker refused
+```
+
+**Decisions and why:**
+- **Client errors are not retried or failed over.** A malformed request gets the same answer
+  from every provider; retrying it only adds load and latency.
+- **401/403 fail over without retrying.** The *gateway's* key for that provider is wrong,
+  so retrying won't help, but another provider may work.
+- **Retry, then fail over.** One retry absorbs a blip (a single 503); a provider that fails
+  twice is treated as down for this request, and the breaker takes over across requests.
+- **Full jitter** (`random(0, ceiling)` rather than `ceiling ± a bit`): after an outage, many
+  requests fail at the same moment. Without randomness they would retry at the same moment
+  too, in waves that can knock a recovering provider over again.
+- **Retry budget, per provider:** over a sliding 10 s window, retries are allowed while
+  `retries < 1/s × 10 s + 10% × first attempts` (the approach of Finagle and gRPC). In a
+  total outage, retries add at most about 10% on top of normal traffic instead of doubling
+  it. The small floor lets a provider with little traffic still retry at all. Counts are kept
+  in ten one-second buckets, so memory is fixed.
+- **What feeds the breaker:** timeouts, I/O errors, unparseable responses, broken streams,
+  5xx and 429 count as failures. Client errors and our own credential problems are reported
+  as *ignored*, and so is anything that isn't a provider failure (a client disconnect), so
+  breaker permissions are always released.
+- **Streams fail over only before the first byte.** The executor wraps the sink and records
+  whether any chunk has been handed on towards the client. Before that, a stream is just a
+  request and can be retried or failed over freely. After it, the client has part of an
+  answer, so the result is the clean `stream_interrupted` event from note 12.
+- **Breaker state changes are logged** (WARN, with the provider), and the access log gains an
+  `attempts` field, so a request that needed failover is visible.
+
+**Tests:**
+- `ResilientExecutorTest` (scripted fake providers, fake clock, sleeps recorded): retry then
+  success; failover with the backup's model name; no retry or failover for a 400;
+  401 → failover without retry; an open breaker is skipped without calling it; all
+  failing → the last real error, with a bounded number of calls; every breaker open → 503;
+  an exhausted budget means failover without retrying; providers without a key are skipped;
+  streams fail over before the first chunk but never after; client errors don't feed the
+  breaker; a client disconnect passes straight through.
+- `FaultInjectionIntegrationTest` (real gateway, several real mock instances): a full primary
+  outage (every request succeeds, and the dead provider gets a handful of calls instead of
+  60), a flapping primary, all providers down (a clean 502/503 and at most 2 calls per provider
+  per request), and streaming before and after the first byte.
+
+**Effect on existing behaviour:** a retryable error from a single-provider route is now tried
+twice before the client sees it. The status codes are unchanged.

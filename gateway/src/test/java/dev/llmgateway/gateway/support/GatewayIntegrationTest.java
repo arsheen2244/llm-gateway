@@ -22,7 +22,11 @@ import org.springframework.test.context.DynamicPropertySource;
  */
 @SpringBootTest(
         webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
-        properties = {"gateway.providers.openai.api-key=", "gateway.providers.anthropic.api-key="})
+        properties = {"gateway.providers.openai.api-key=", "gateway.providers.anthropic.api-key=",
+        // Many tests here send deliberate errors to the same mock; a real breaker would trip
+        // part-way through the suite. Fault-injection tests configure a realistic one.
+        "gateway.resilience.breaker.minimum-calls=1000000",
+        "gateway.resilience.backoff-base=10ms"})
 public abstract class GatewayIntegrationTest {
 
     @LocalServerPort

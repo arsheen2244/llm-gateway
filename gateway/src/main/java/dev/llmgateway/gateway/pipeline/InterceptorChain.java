@@ -18,22 +18,38 @@ public final class InterceptorChain implements ChatInterceptor.Chain {
 
     private final List<ChatInterceptor> interceptors;
     private final int index;
-    private final ProviderAdapter adapter;
+    private final ChatInterceptor.Chain terminal;
 
-    public InterceptorChain(List<ChatInterceptor> interceptors, ProviderAdapter adapter) {
-        this(List.copyOf(interceptors), 0, adapter);
+    /** Interceptors, then {@code terminal} (in production the resilient executor). */
+    public InterceptorChain(List<ChatInterceptor> interceptors, ChatInterceptor.Chain terminal) {
+        this(List.copyOf(interceptors), 0, terminal);
     }
 
-    private InterceptorChain(List<ChatInterceptor> interceptors, int index, ProviderAdapter adapter) {
+    /** Interceptors, then one direct call to {@code adapter} on the context's provider. */
+    public InterceptorChain(List<ChatInterceptor> interceptors, ProviderAdapter adapter) {
+        this(List.copyOf(interceptors), 0, new ChatInterceptor.Chain() {
+            @Override
+            public ChatCompletionResponse complete(ChatContext context) {
+                return adapter.complete(context.provider(), context.request());
+            }
+
+            @Override
+            public void stream(ChatContext context, ChunkSink sink) {
+                adapter.stream(context.provider(), context.request(), sink);
+            }
+        });
+    }
+
+    private InterceptorChain(List<ChatInterceptor> interceptors, int index, ChatInterceptor.Chain terminal) {
         this.interceptors = interceptors;
         this.index = index;
-        this.adapter = adapter;
+        this.terminal = terminal;
     }
 
     @Override
     public ChatCompletionResponse complete(ChatContext context) {
         if (index == interceptors.size()) {
-            return adapter.complete(context.provider(), context.request());
+            return terminal.complete(context);
         }
         return interceptors.get(index).complete(context, next());
     }
@@ -41,13 +57,13 @@ public final class InterceptorChain implements ChatInterceptor.Chain {
     @Override
     public void stream(ChatContext context, ChunkSink sink) {
         if (index == interceptors.size()) {
-            adapter.stream(context.provider(), context.request(), sink);
+            terminal.stream(context, sink);
             return;
         }
         interceptors.get(index).stream(context, sink, next());
     }
 
     private InterceptorChain next() {
-        return new InterceptorChain(interceptors, index + 1, adapter);
+        return new InterceptorChain(interceptors, index + 1, terminal);
     }
 }

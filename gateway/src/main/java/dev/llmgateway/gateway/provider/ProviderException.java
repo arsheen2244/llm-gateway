@@ -19,7 +19,9 @@ public class ProviderException extends RuntimeException {
         /** The provider answered, but not with something we could parse. */
         INVALID_RESPONSE,
         /** The gateway has no API key for this provider. */
-        NOT_CONFIGURED
+        NOT_CONFIGURED,
+        /** The provider's circuit breaker is open, so it was not called (design note 28). */
+        CIRCUIT_OPEN
     }
 
     private final String provider;
@@ -55,14 +57,14 @@ public class ProviderException extends RuntimeException {
     }
 
     /**
-     * Whether trying again (or trying another provider) could succeed. Nothing
-     * uses this yet: it is the seam for week 3's retries and failover.
+     * Whether trying the same provider again could succeed (used by the retry logic,
+     * design note 27).
      */
     public boolean isRetryable() {
         return switch (reason) {
             case ERROR_RESPONSE -> upstreamStatus == 429 || upstreamStatus >= 500;
             case TIMEOUT, IO_ERROR -> true;
-            case STREAM_INTERRUPTED, INVALID_RESPONSE, NOT_CONFIGURED -> false;
+            case STREAM_INTERRUPTED, INVALID_RESPONSE, NOT_CONFIGURED, CIRCUIT_OPEN -> false;
         };
     }
 }

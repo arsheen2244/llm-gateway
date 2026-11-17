@@ -98,7 +98,7 @@ public class RateLimitInterceptor implements ChatInterceptor {
      */
     private void refundIfNothingWasProduced(Reservation reservation, ProviderException e) {
         switch (e.reason()) {
-            case ERROR_RESPONSE, TIMEOUT, IO_ERROR, NOT_CONFIGURED -> settle(reservation, 0);
+            case ERROR_RESPONSE, TIMEOUT, IO_ERROR, NOT_CONFIGURED, CIRCUIT_OPEN -> settle(reservation, 0);
             case STREAM_INTERRUPTED, INVALID_RESPONSE -> { } // something may have been billed
         }
     }

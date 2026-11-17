@@ -6,12 +6,12 @@ import dev.llmgateway.gateway.api.dto.ChatCompletionRequest;
 import dev.llmgateway.gateway.api.dto.ChatCompletionResponse;
 import dev.llmgateway.gateway.auth.ClientIdentity;
 import dev.llmgateway.gateway.observability.LogFields;
-import dev.llmgateway.gateway.provider.AdapterRegistry;
 import dev.llmgateway.gateway.provider.ChunkSink;
 import dev.llmgateway.gateway.provider.ProviderException;
-import dev.llmgateway.gateway.provider.call.ProviderCaller;
 import dev.llmgateway.gateway.routing.ModelRouter;
+import dev.llmgateway.gateway.resilience.ResilientExecutor;
 import dev.llmgateway.gateway.routing.ProviderConfig;
+import dev.llmgateway.gateway.routing.ProviderTarget;
 import org.slf4j.MDC;
 import org.springframework.stereotype.Service;
 
@@ -24,17 +24,14 @@ import org.springframework.stereotype.Service;
 public class ChatPipeline {
 
     private final ModelRouter router;
-    private final AdapterRegistry adapters;
     private final List<ChatInterceptor> interceptors;
-    private final ProviderCaller caller;
+    private final ResilientExecutor executor;
 
     /** Spring injects every ChatInterceptor bean, sorted by @Order. */
-    public ChatPipeline(ModelRouter router, AdapterRegistry adapters, List<ChatInterceptor> interceptors,
-                        ProviderCaller caller) {
+    public ChatPipeline(ModelRouter router, List<ChatInterceptor> interceptors, ResilientExecutor executor) {
         this.router = router;
-        this.adapters = adapters;
         this.interceptors = List.copyOf(interceptors);
-        this.caller = caller;
+        this.executor = executor;
     }
 
     public ChatCompletionResponse complete(ChatCompletionRequest request, ClientIdentity client,
@@ -53,18 +50,19 @@ public class ChatPipeline {
         // Recorded in the MDC so every later log line, including the access log, shows them.
         MDC.put(LogFields.MODEL, request.model());
         MDC.put(LogFields.STREAM, String.valueOf(request.streaming()));
-        ProviderConfig provider = router.route(request.model());
+        List<ProviderTarget> targets = router.targets(request.model());
+        ProviderConfig provider = targets.get(0).provider();
         MDC.put(LogFields.PROVIDER, provider.name());
-        if (!provider.hasApiKey()) {
+        if (targets.stream().noneMatch(target -> target.provider().hasApiKey())) {
             // Fail here with a clear message rather than sending an unauthenticated call upstream.
             throw ProviderException.of(provider.name(), ProviderException.Reason.NOT_CONFIGURED,
                     "No API key configured for provider '" + provider.name() + "'", null);
         }
-        return new ChatContext(client, request, provider, headers);
+        return new ChatContext(client, request, provider, headers, targets);
     }
 
+    /** Interceptors (rate limiting first), then the resilient executor (design note 27). */
     private InterceptorChain chainFor(ChatContext context) {
-        // Every provider call runs under the first-byte / total / stream deadlines (note 26).
-        return new InterceptorChain(interceptors, caller.withDeadlines(adapters.forType(context.provider().type())));
+        return new InterceptorChain(interceptors, executor);
     }
 }

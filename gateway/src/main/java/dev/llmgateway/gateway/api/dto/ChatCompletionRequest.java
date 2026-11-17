@@ -44,6 +44,12 @@ public record ChatCompletionRequest(
         return streamOptions != null && Boolean.TRUE.equals(streamOptions.includeUsage());
     }
 
+    /** Copy with another model name, e.g. a failover provider's own model (design note 25). */
+    public ChatCompletionRequest withModel(String newModel) {
+        return new ChatCompletionRequest(newModel, messages, stream, streamOptions,
+                temperature, maxTokens, topP, stop);
+    }
+
     /** Copy with {@code stream} set as given and stream options cleared. */
     public ChatCompletionRequest withStream(boolean newStream, StreamOptions newStreamOptions) {
         return new ChatCompletionRequest(model, messages, newStream, newStreamOptions,
