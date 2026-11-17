@@ -7,9 +7,9 @@ or a local mock), translates between their formats, and relays streaming respons
 Built with Java 21 and Spring Boot 3 (Spring MVC on **virtual threads**: plain blocking
 code that still handles many open streams).
 
-> **Status: week 1 of 5.** The core proxy, streaming, two provider adapters, a mock
-> provider and tests are done. Rate limiting, resilience, caching and cost tracking
-> come next (see [Roadmap](#roadmap)).
+> **Status: weeks 1–2 of 5.** The core proxy, streaming, two provider adapters, a mock
+> provider, API-key auth and distributed token-aware rate limiting are done. Resilience,
+> caching and cost tracking come next (see [Roadmap](#roadmap)).
 
 ## What it does today
 
@@ -21,8 +21,16 @@ code that still handles many open streams).
   that breaks halfway ends with a proper error event instead of hanging
 - A **mock provider** (separate service) with configurable latency, error rate and
   mid-stream failures. All tests run against it, never against real providers
-- Structured JSON logs with a request ID on every line
-- Docker Compose setup, a k6 overhead benchmark, and GitHub Actions CI
+- **API-key authentication:** clients send `Authorization: Bearer <key>`; only SHA-256
+  hashes of keys are stored in config
+- **Distributed, token-aware rate limiting:** per-client requests-per-minute and
+  tokens-per-minute over a sliding window, enforced atomically in Redis by a Lua script so
+  all instances share one count. Tokens are reserved from an estimate and reconciled with
+  the provider's actual usage. Rejections are `429` with `Retry-After` and OpenAI-style
+  `x-ratelimit-*` headers. If Redis is unreachable, each instance falls back to its share
+- Structured JSON logs with a request ID and client ID on every line
+- Docker Compose with **nginx in front of three gateway instances** sharing one Redis,
+  k6 tests (latency overhead, rate-limit drift), and GitHub Actions CI
 
 ## Quick start
 
@@ -32,7 +40,10 @@ code that still handles many open streams).
 docker compose up --build
 ```
 
-The gateway runs on `http://localhost:8080` and the mock on `http://localhost:8081`.
+nginx listens on `http://localhost:8080` and spreads requests over three gateway
+instances, which share rate limits through Redis. The mock is on `http://localhost:8081`.
+`RATE_LIMIT_BACKEND=in-memory docker compose up` switches to per-instance limits (the
+baseline from the drift measurement).
 
 ### Without Docker
 
@@ -44,7 +55,8 @@ java -jar mock-provider/target/mock-provider-0.1.0-SNAPSHOT-exec.jar
 java -jar gateway/target/gateway-0.1.0-SNAPSHOT.jar --spring.profiles.active=local
 ```
 
-(On Windows use `mvnw.cmd`. Run the two `java` commands in separate terminals.)
+(On Windows use `mvnw.cmd`. Run the two `java` commands in separate terminals.) Without
+Docker there is one instance and no Redis, so the default in-memory rate limiter is used.
 
 ### Try it
 
@@ -91,19 +103,22 @@ those models return `503 provider_not_configured`.
 
 ```mermaid
 flowchart LR
-    C[Client<br/>OpenAI SDK, curl] -->|POST /v1/chat/completions| F
+    C[Client<br/>OpenAI SDK, curl] -->|POST /v1/chat/completions| N[nginx<br/>round robin]
+    N --> F
 
-    subgraph GW[Gateway]
+    subgraph GW[Gateway instance x3]
         direction LR
-        F[RequestIdFilter<br/>request ID, access log] --> CT[ChatCompletionsController]
+        F[RequestIdFilter<br/>request ID, access log] --> K[ApiKeyAuthFilter<br/>401 or client identity]
+        K --> CT[ChatCompletionsController]
         CT --> P[ChatPipeline]
         P --> R[ModelRouter]
-        P --> IC[Interceptor chain<br/><i>empty in week 1</i>]
-        IC --> A{Adapter}
+        P --> RL[RateLimitInterceptor<br/>reserve, 429, reconcile]
+        RL --> A{Adapter}
         A --> OA[OpenAiAdapter]
         A --> AA[AnthropicAdapter]
     end
 
+    RL <-->|Lua scripts| RD[(Redis<br/>shared windows)]
     OA --> OAPI[OpenAI API]
     AA --> AAPI[Anthropic API]
     OA -. mock-* .-> M[Mock provider]
@@ -114,16 +129,19 @@ flowchart LR
 
 1. **`RequestIdFilter`** assigns a request ID (or reuses a safe `X-Request-Id` from the
    client), puts it in the logging context, and writes one JSON access-log line at the end.
-2. **`ChatCompletionsController`** validates the OpenAI-format body. `stream: true` goes
+2. **`ApiKeyAuthFilter`** hashes the bearer key and looks up the client, or answers 401
+   before the body is even read.
+3. **`ChatCompletionsController`** validates the OpenAI-format body. `stream: true` goes
    to `StreamingChatHandler`, everything else to `ChatPipeline` directly.
-3. **`ChatPipeline`** asks **`ModelRouter`** which provider serves the model (an ordered
+4. **`ChatPipeline`** asks **`ModelRouter`** which provider serves the model (an ordered
    list of patterns, first match wins), then runs the **interceptor chain** and finally
-   the provider's **adapter**.
-4. **Adapters** translate to the provider's wire format and back. The OpenAI adapter
+   the provider's **adapter**. The first interceptor is the **rate limiter**: it reserves
+   estimated tokens (or answers 429) before the call and reconciles with actual usage after.
+5. **Adapters** translate to the provider's wire format and back. The OpenAI adapter
    barely translates. The Anthropic adapter moves system prompts, fills in the required
    `max_tokens`, maps stop reasons and token usage, and turns Anthropic's named stream
    events into OpenAI chunks.
-5. For streams, the adapter pushes each chunk into a sink that writes it straight to
+6. For streams, the adapter pushes each chunk into a sink that writes it straight to
    the client. Everything runs on the request's own virtual thread.
 
 ### Key ideas
@@ -133,13 +151,17 @@ flowchart LR
 | One thread per request, blocking code | `spring.threads.virtual.enabled` | Virtual threads make blocking cheap, so the code stays simple without WebFlux |
 | Adapter = protocol, provider = instance | `application.yml`, `ProviderAdapter` | One `OpenAiAdapter` serves real OpenAI *and* the mock, so tests exercise the real adapter code |
 | Lazy commit for streams | `SseResponse` | Nothing is sent until the first chunk, so early failures can still be real HTTP errors |
-| Interceptor chain | `pipeline/` | The plug-in point for rate limiting, caching and cost tracking in later weeks |
+| Interceptor chain | `pipeline/` | Where rate limiting plugs in (week 2), and caching and cost tracking will (weeks 4–5) |
+| Atomic Lua script, Redis's clock | `ratelimit/*.lua` | Check-and-record can't interleave across instances, and every instance sees the same time |
 | Idle timeout, not total timeout | `HttpClientConfig` | A long healthy stream is fine; a stalled one is cut off (chosen by measurement) |
 
 ### How failures look to the client
 
 | What happened | Client gets |
 |---|---|
+| Missing or unknown API key | `401 missing_api_key` / `invalid_api_key` |
+| Over the client's request or token limit | `429 rate_limit_exceeded` with `Retry-After` |
+| Estimate larger than the client's whole token limit | `429 request_too_large_for_limit`, no `Retry-After` |
 | Unknown model | `404 model_not_found` |
 | Invalid request body | `400 invalid_request_error` |
 | Provider rejected the request (400/404/422) | same status, provider's message |
@@ -156,14 +178,18 @@ All errors use OpenAI's error format, so OpenAI client libraries handle them nor
 ```
 gateway/                       the gateway (Spring Boot app)
   api/                         controller, streaming handler, error mapping, DTOs
+  auth/                        API-key filter, client registry
+  ratelimit/                   limiter interface, Redis + in-memory + fallback limiters, interceptor
   pipeline/                    ChatPipeline + interceptor chain
   routing/                     model → provider
   provider/                    adapter interface, shared SSE/stream code
     openai/  anthropic/        one package per adapter
   streaming/                   writing SSE to the client
   observability/               request ID filter, log field names
+  resources/ratelimit/*.lua    the atomic rate-limit scripts
 mock-provider/                 fake provider speaking OpenAI and Anthropic formats
-load-test/                     k6 overhead benchmark
+nginx/nginx.conf               load balancer in front of the three instances
+load-test/                     k6 tests: latency overhead, rate-limit drift
 scripts/smoke-test.sh          end-to-end check of a running stack
 docs/design-notes.md           every significant decision, with the alternatives rejected
 ```
@@ -187,6 +213,42 @@ Random behaviour is set with environment variables:
 A model name can force an outcome, which keeps tests deterministic: `mock-error-503`
 returns HTTP 503, and `mock-fail-after-2` streams two chunks and then drops the connection.
 
+## Rate limiting
+
+Each client (configured under `gateway.auth.clients`) has a **requests-per-minute** and a
+**tokens-per-minute** limit over a **sliding window**:
+
+- Before the provider call, the gateway estimates tokens (prompt characters ÷ 4, plus
+  `max_tokens` or a configured default) and asks the limiter. If both limits fit, the
+  request and its estimate are recorded; otherwise the client gets a 429.
+- After the call, the reservation is **reconciled**: replaced by the provider's actual
+  usage, refunded if the provider failed before producing anything, or kept if the outcome
+  is unknown (a broken stream).
+- With `backend: redis`, all windows live in Redis and a **Lua script** does the check and
+  the update in one atomic step, using Redis's own clock, so every instance shares one
+  count. If Redis is unreachable, each instance enforces `ceil(limit ÷ instances)` locally
+  and probes Redis every 5 s.
+- Every response carries `x-ratelimit-limit-requests`, `x-ratelimit-remaining-requests`,
+  `x-ratelimit-limit-tokens` and `x-ratelimit-remaining-tokens` (OpenAI's names); 429s add
+  `Retry-After`.
+
+### Measured drift: shared vs per-instance (2026-11-17)
+
+Three instances behind nginx; each client offered 5× its request limit for 3 minutes
+(`load-test/rate-limit-drift.js`, run on GitHub Actions). "Max in any 60 s" is the most
+admitted in any rolling minute, which is what the limit promises.
+
+| Backend | Limit | Max in any 60 s | Drift |
+|---|---|---|---|
+| Redis (shared) | 300 requests/min | 300 | **+0.0%** |
+| Redis (shared) | 3,000 tokens/min | 2,899 | **−3.4%** |
+| In-memory (per instance) | 300 requests/min | 900 | **+200.0%** |
+| In-memory (per instance) | 3,000 tokens/min | 8,697 | **+189.9%** |
+
+The shared limiter holds exactly; per-instance limiting lets through about one full limit
+per instance. Tokens err slightly on the strict side because in-flight requests hold their
+estimate until reconciled. Method and caveats: design note 24.
+
 ## Tests
 
 ```bash
@@ -199,8 +261,15 @@ in one JVM on random ports and talk to them over real HTTP: normal responses, st
 provider errors, a stream that fails midway, request IDs and the JSON access log. Real
 provider keys are forced to empty in tests, so a test can never call a paid API.
 
-CI (GitHub Actions) runs the tests, then builds the Docker images, starts the stack
-with Compose and runs `scripts/smoke-test.sh` against it.
+Rate limiting has one shared contract test suite, `RateLimiterContractTest`, run against
+both the in-memory limiter and the Redis Lua scripts. Redis-backed tests (the contract,
+script storage and cleanup, a Redis paused mid-run, and **two gateway instances sharing one
+Redis: 200 parallel requests against a limit of 50 admit exactly 50**) use `REDIS_URL` if
+set, otherwise a Testcontainers Redis, and are skipped when neither is available.
+
+CI (GitHub Actions) runs all tests including the Redis ones, reports failing tests and
+Redis test counts as annotations visible without signing in, then starts the full Compose
+stack (nginx, three gateways, Redis, mock) and runs `scripts/smoke-test.sh` against it.
 
 ## Benchmark: latency added by the gateway
 
@@ -209,6 +278,9 @@ through the gateway, and reports p50 and p95 for each and the difference
 (see [load-test/README.md](load-test/README.md)).
 
 ### Results (measured 2026-11-16)
+
+These were measured in week 1, before authentication and rate limiting were added to the
+request path; they have not been re-measured since.
 
 **The gateway adds about 1–2 ms at p50 and 3–5 ms at p95.**
 
@@ -259,7 +331,7 @@ smaller than the noise. That is why the headline table above uses a zero-latency
 ## Roadmap
 
 1. ✅ Core proxy with streaming, OpenAI and Anthropic adapters, mock provider
-2. Distributed token-aware rate limiting (Redis + Lua, 3 gateway instances)
+2. ✅ Distributed token-aware rate limiting (Redis + Lua, 3 gateway instances)
 3. Resilience: circuit breakers, retries with backoff and jitter, failover, hedged requests
 4. Semantic cache, with an evaluation set measuring hit rate vs false hits
 5. Usage and cost accounting via Kafka into PostgreSQL, metrics, load tests

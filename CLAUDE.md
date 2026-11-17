@@ -43,9 +43,10 @@ docs/            design-notes.md
 - **Secrets only from environment variables.** Never commit keys. Gateway client keys
   are stored in config as SHA-256 hashes, not plaintext.
 - **No Docker on the owner's laptop** (no WSL, and memory is tight). Docker-dependent
-  work (Testcontainers, multi-instance Compose, k6 against Compose) runs in GitHub
-  Actions. Testcontainers tests must use `disabledWithoutDocker = true` so local builds
-  pass.
+  work (Redis tests, multi-instance Compose, k6 against Compose) runs in GitHub Actions.
+  Redis tests get Redis from `support/RedisTestSupport` (`REDIS_URL`, else Testcontainers)
+  and are skipped when neither exists, so local builds pass. CI publishes failing tests
+  and Redis test counts as annotations, readable on the run page without signing in.
 - When running the jars locally, cap JVM memory (see README benchmark setup) or they
   crash for lack of native memory.
 
