@@ -631,3 +631,38 @@ over-admits by at most `instances − 1` per window across the fleet.
 - `TwoGatewayInstancesTest`: two complete gateway applications share one Redis. 200
   parallel HTTP requests, alternating between them, against a 50-per-minute client must
   give exactly 50 × 200 and 150 × 429.
+
+## 23. Three instances behind nginx (Docker Compose)
+
+**Chosen:** `docker compose up` starts nginx on port 8080, three gateway instances
+(`gateway-1/2/3`, defined once through a YAML anchor), one Redis and the mock. The
+gateways run the `local` profile, use `backend=redis` (switchable with
+`RATE_LIMIT_BACKEND=in-memory` for the baseline), and set `instances=3` so the Redis-down
+fallback enforces a third of each limit per instance.
+
+**nginx settings that matter for an LLM gateway:**
+- `proxy_buffering off`: otherwise nginx collects an SSE stream and delivers it in lumps,
+  and streaming is gone. (The gateway also sends `X-Accel-Buffering: no` for the same
+  reason.)
+- `proxy_http_version 1.1` + an empty `Connection` header + `keepalive 64`: reuse
+  connections to the gateways instead of a TCP handshake per request.
+- `proxy_read_timeout 300s`: streams can run for minutes; only silence should end them.
+- **No retries of POSTs:** nginx's default `proxy_next_upstream` doesn't resend
+  non-idempotent requests to another instance. That is what we want, because a resent LLM
+  call costs money twice. Whether and when to retry is week 3's decision, in the gateway.
+- Round robin (the default). *Rejected:* `least_conn`, which helps when request costs
+  vary a lot, but makes the even spread across instances (which the rate-limit drift
+  measurement assumes) harder to reason about.
+
+**Named services vs `replicas: 3`:** with replicas, nginx would resolve one service name to
+several IPs once at startup, and an instance replaced later would be missed. Explicit
+services make the upstream list readable, and `X-Upstream` names the instance that served
+each request.
+
+**`X-Upstream` header:** nginx adds the address of the instance that answered. The smoke
+test uses it to prove traffic reaches more than one instance. It exposes internal
+addresses, which is acceptable for a local demo; production would drop it.
+
+**Startup order:** Redis has a health check and the gateways wait for it. nginx can come
+up before the gateways are ready and answers 502 meanwhile, so the smoke test waits for a
+real 200 (it previously accepted any HTTP answer, which a 502 from nginx would have passed).
