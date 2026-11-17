@@ -28,6 +28,7 @@ import dev.llmgateway.mock.behavior.Scenario;
 import dev.llmgateway.mock.behavior.ScenarioResolver;
 import dev.llmgateway.mock.behavior.SimulatedConnectionDropException;
 import dev.llmgateway.mock.sse.SseWriter;
+import dev.llmgateway.mock.stats.RequestStats;
 import jakarta.servlet.http.HttpServletResponse;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
@@ -44,13 +45,15 @@ public class AnthropicMockController {
     private final FakeCompletionGenerator generator;
     private final MockBehaviorProperties properties;
     private final ObjectMapper json;
+    private final RequestStats stats;
 
     public AnthropicMockController(ScenarioResolver scenarios, FakeCompletionGenerator generator,
-                                   MockBehaviorProperties properties, ObjectMapper json) {
+                                   MockBehaviorProperties properties, ObjectMapper json, RequestStats stats) {
         this.scenarios = scenarios;
         this.generator = generator;
         this.properties = properties;
         this.json = json;
+        this.stats = stats;
     }
 
     @PostMapping("/v1/messages")
@@ -71,7 +74,8 @@ public class AnthropicMockController {
         }
 
         Scenario scenario = scenarios.resolve(request.model());
-        Pause.millis(properties.latencyMs());
+        stats.record(scenario);
+        Pause.millis(properties.latencyMs() + scenario.extraLatencyMs());
 
         if (scenario.kind() == Scenario.Kind.HTTP_ERROR) {
             return error(scenario.httpStatus(), "Simulated provider error (HTTP " + scenario.httpStatus() + ")");

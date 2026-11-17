@@ -1,5 +1,6 @@
 package dev.llmgateway.mock.behavior;
 
+import java.time.Clock;
 import java.util.concurrent.ThreadLocalRandom;
 import java.util.function.DoubleSupplier;
 
@@ -17,5 +18,11 @@ public class MockConfig {
     @Bean
     DoubleSupplier mockRandom() {
         return () -> ThreadLocalRandom.current().nextDouble();
+    }
+
+    /** The clock behind flapping, a bean so tests can control time. */
+    @Bean
+    Clock mockClock() {
+        return Clock.systemUTC();
     }
 }

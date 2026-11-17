@@ -24,6 +24,7 @@ import dev.llmgateway.mock.openai.OpenAiWire.ErrorDetail;
 import dev.llmgateway.mock.openai.OpenAiWire.Message;
 import dev.llmgateway.mock.openai.OpenAiWire.Usage;
 import dev.llmgateway.mock.sse.SseWriter;
+import dev.llmgateway.mock.stats.RequestStats;
 import jakarta.servlet.http.HttpServletResponse;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
@@ -40,13 +41,15 @@ public class OpenAiMockController {
     private final FakeCompletionGenerator generator;
     private final MockBehaviorProperties properties;
     private final ObjectMapper json;
+    private final RequestStats stats;
 
     public OpenAiMockController(ScenarioResolver scenarios, FakeCompletionGenerator generator,
-                                MockBehaviorProperties properties, ObjectMapper json) {
+                                MockBehaviorProperties properties, ObjectMapper json, RequestStats stats) {
         this.scenarios = scenarios;
         this.generator = generator;
         this.properties = properties;
         this.json = json;
+        this.stats = stats;
     }
 
     /**
@@ -64,7 +67,8 @@ public class OpenAiMockController {
             return error(401);
         }
         Scenario scenario = scenarios.resolve(request.model());
-        Pause.millis(properties.latencyMs());
+        stats.record(scenario);
+        Pause.millis(properties.latencyMs() + scenario.extraLatencyMs());
 
         if (scenario.kind() == Scenario.Kind.HTTP_ERROR) {
             return error(scenario.httpStatus());

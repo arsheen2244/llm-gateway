@@ -11,7 +11,7 @@ import org.junit.jupiter.api.Test;
 class ScenarioResolverTest {
 
     private static final MockBehaviorProperties RATES =
-            new MockBehaviorProperties(0, 0.2, 0.3, 6, 0);
+            MockBehaviorProperties.basic(0, 0.2, 0.3, 6, 0);
 
     @Test
     void modelNameCanForceHttpError() {
@@ -67,6 +67,6 @@ class ScenarioResolverTest {
     private static ScenarioResolver resolver(Double... values) {
         Iterator<Double> sequence = Arrays.asList(values).iterator();
         DoubleSupplier random = sequence::next;
-        return new ScenarioResolver(RATES, random);
+        return new ScenarioResolver(RATES, random, java.time.Clock.systemUTC());
     }
 }
