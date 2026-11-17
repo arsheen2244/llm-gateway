@@ -1,0 +1,45 @@
+# Adds the week-3 measurement setup on top of docker-compose.yml:
+#   docker compose -f docker-compose.yml -f docker-compose.resilience.yml up --build
+# Three extra mock providers (published on 8082-8084 so their /stats can be read), and the
+# gateways switched to the "resilience" profile, which routes test models to them.
+# HEDGING_ENABLED=false turns hedging off for the "without hedging" measurement.
+
+services:
+  mock-down:
+    image: llm-gateway/mock-provider:local
+    ports:
+      - "8082:8081"
+    environment:
+      MOCK_LATENCY_MS: "100"
+      MOCK_ERROR_RATE: "1.0"
+
+  mock-backup:
+    image: llm-gateway/mock-provider:local
+    ports:
+      - "8083:8081"
+    environment:
+      MOCK_LATENCY_MS: "100"
+
+  mock-slow:
+    image: llm-gateway/mock-provider:local
+    ports:
+      - "8084:8081"
+    environment:
+      MOCK_LATENCY_MS: "100"
+      MOCK_SLOW_RATE: "0.03"
+      MOCK_SLOW_LATENCY_MS: "2000"
+
+  gateway-1: &resilience-gateway
+    environment:
+      SPRING_PROFILES_ACTIVE: local,resilience
+      GATEWAY_RESILIENCE_HEDGING_ENABLED: ${HEDGING_ENABLED:-true}
+    # Map form, to merge with the base file's depends_on (which is also a map).
+    depends_on:
+      mock-down:
+        condition: service_started
+      mock-backup:
+        condition: service_started
+      mock-slow:
+        condition: service_started
+  gateway-2: *resilience-gateway
+  gateway-3: *resilience-gateway

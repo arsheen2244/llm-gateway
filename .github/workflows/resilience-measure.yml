@@ -1,0 +1,89 @@
+name: Resilience measurements
+
+# Week-3 measurements (design note 31): success rate during a primary outage, p99 latency
+# against a slow provider with and without hedging, and the extra upstream volume from
+# retries and hedges (counted at the mocks' /stats). Each job runs on its own runner.
+on:
+  workflow_dispatch:
+  # A "Run workflow" button only appears once this file is on main, so until then (and
+  # whenever the measurement itself changes) a push also runs it.
+  push:
+    paths:
+      - load-test/resilience.js
+      - load-test/resilience_report.py
+      - docker-compose.resilience.yml
+      - .github/workflows/resilience-measure.yml
+
+jobs:
+  measure:
+    name: ${{ matrix.scenario }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - scenario: outage
+            hedging: "true"
+          - scenario: slow-hedging
+            hedging: "true"
+          - scenario: slow-no-hedging
+            hedging: "false"
+    env:
+      HEDGING_ENABLED: ${{ matrix.hedging }}
+      COMPOSE: docker compose -f docker-compose.yml -f docker-compose.resilience.yml
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: grafana/setup-k6-action@v1
+
+      - name: Start nginx, 3 gateways, Redis and four mocks
+        run: |
+          $COMPOSE build
+          $COMPOSE up -d
+
+      - name: Wait until the stack answers
+        run: bash scripts/smoke-test.sh http://localhost:8080
+
+      - name: Outage of the primary, with failover, then without
+        if: matrix.scenario == 'outage'
+        run: |
+          snap() { curl -s localhost:8082/stats > "$1-down.json"; curl -s localhost:8083/stats > "$1-backup.json"; }
+          snap s0
+          k6 run --quiet -e PHASE=failover load-test/resilience.js
+          snap s1
+          k6 run --quiet -e PHASE=single load-test/resilience.js
+          snap s2
+          python3 load-test/resilience_report.py --label "outage, failover [down, backup]" \
+            --result resilience-failover.json \
+            --stats mock-down s0-down.json s1-down.json --stats mock-backup s0-backup.json s1-backup.json
+          python3 load-test/resilience_report.py --label "outage, no failover [down]" \
+            --result resilience-single.json \
+            --stats mock-down s1-down.json s2-down.json --stats mock-backup s1-backup.json s2-backup.json
+
+      - name: Slow provider (3% of calls +2 s), hedging ${{ matrix.hedging }}
+        if: startsWith(matrix.scenario, 'slow')
+        run: |
+          curl -s localhost:8084/stats > before.json
+          k6 run --quiet -e PHASE=slow load-test/resilience.js
+          curl -s localhost:8084/stats > after.json
+          python3 load-test/resilience_report.py --label "slow provider, hedging ${{ matrix.hedging }}" \
+            --result resilience-slow.json --stats mock-slow before.json after.json
+
+      - name: Keep raw results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: resilience-${{ matrix.scenario }}
+          path: |
+            resilience-*.json
+            s*-*.json
+            before.json
+            after.json
+
+      - name: Show gateway logs on failure
+        if: failure()
+        run: $COMPOSE logs --tail 200 gateway-1
+
+      - name: Stop stack
+        if: always()
+        run: $COMPOSE down

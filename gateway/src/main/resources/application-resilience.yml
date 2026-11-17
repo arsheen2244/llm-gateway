@@ -1,0 +1,35 @@
+# Profile for the week-3 resilience measurements (docker-compose.resilience.yml,
+# load-test/resilience.js). Activate together with "local": SPRING_PROFILES_ACTIVE=local,resilience
+gateway:
+  providers:
+    mock-down:          # a provider in a full outage: answers 500 to everything
+      type: openai
+      base-url: http://mock-down:8081
+      api-key: mock-key
+    mock-backup:        # a healthy backup
+      type: openai
+      base-url: http://mock-backup:8081
+      api-key: mock-key
+    mock-slow:          # 3% of requests take 2 s longer
+      type: openai
+      base-url: http://mock-slow:8081
+      api-key: mock-key
+
+  # A profile's list replaces the base list, so every route needed is repeated here.
+  routes:
+    - model-pattern: "outage-failover-*"
+      providers:
+        - name: mock-down
+        - name: mock-backup
+    - model-pattern: "outage-single-*"
+      provider: mock-down
+    - model-pattern: "slow-*"
+      provider: mock-slow
+    - model-pattern: "mock-claude-*"
+      provider: mock-anthropic
+    - model-pattern: "mock-*"
+      provider: mock-openai
+    - model-pattern: "gpt-*"
+      provider: openai
+    - model-pattern: "claude-*"
+      provider: anthropic
