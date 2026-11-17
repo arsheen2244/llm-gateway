@@ -7,9 +7,10 @@ or a local mock), translates between their formats, and relays streaming respons
 Built with Java 21 and Spring Boot 3 (Spring MVC on **virtual threads**: plain blocking
 code that still handles many open streams).
 
-> **Status: weeks 1–2 of 5.** The core proxy, streaming, two provider adapters, a mock
-> provider, API-key auth and distributed token-aware rate limiting are done. Resilience,
-> caching and cost tracking come next (see [Roadmap](#roadmap)).
+> **Status: weeks 1–3 of 5.** The core proxy, streaming, two provider adapters, a mock
+> provider, API-key auth, distributed token-aware rate limiting and resilience (deadlines,
+> circuit breakers, retries, failover, hedging) are done. Caching and cost tracking come next
+> (see [Roadmap](#roadmap)).
 
 ## What it does today
 
@@ -28,6 +29,10 @@ code that still handles many open streams).
   all instances share one count. Tokens are reserved from an estimate and reconciled with
   the provider's actual usage. Rejections are `429` with `Retry-After` and OpenAI-style
   `x-ratelimit-*` headers. If Redis is unreachable, each instance falls back to its share
+- **Resilience:** first-byte, total and stream deadlines on every provider call; a circuit
+  breaker per provider; retries with exponential backoff and full jitter, capped by a retry
+  budget; failover along an ordered list of providers per model (streams only before their
+  first byte); and hedged requests for slow non-streaming calls
 - Structured JSON logs with a request ID and client ID on every line
 - Docker Compose with **nginx in front of three gateway instances** sharing one Redis,
   k6 tests (latency overhead, rate-limit drift), and GitHub Actions CI
@@ -113,7 +118,8 @@ flowchart LR
         CT --> P[ChatPipeline]
         P --> R[ModelRouter]
         P --> RL[RateLimitInterceptor<br/>reserve, 429, reconcile]
-        RL --> A{Adapter}
+        RL --> EX[ResilientExecutor<br/>breakers, retries, failover, hedging]
+        EX --> A{Adapter}
         A --> OA[OpenAiAdapter]
         A --> AA[AnthropicAdapter]
     end
@@ -135,8 +141,12 @@ flowchart LR
    to `StreamingChatHandler`, everything else to `ChatPipeline` directly.
 4. **`ChatPipeline`** asks **`ModelRouter`** which provider serves the model (an ordered
    list of patterns, first match wins), then runs the **interceptor chain** and finally
-   the provider's **adapter**. The first interceptor is the **rate limiter**: it reserves
+   the **resilient executor**. The first interceptor is the **rate limiter**: it reserves
    estimated tokens (or answers 429) before the call and reconciles with actual usage after.
+   The **executor** walks the model's provider list: it skips providers whose circuit breaker
+   is open, retries retryable failures once with backoff (within the retry budget), fails
+   over to the next provider, and hedges slow non-streaming calls. Every call runs under
+   first-byte, total (or stream) deadlines and can be cancelled mid-flight.
 5. **Adapters** translate to the provider's wire format and back. The OpenAI adapter
    barely translates. The Anthropic adapter moves system prompts, fills in the required
    `max_tokens`, maps stop reasons and token usage, and turns Anthropic's named stream
@@ -153,6 +163,9 @@ flowchart LR
 | Lazy commit for streams | `SseResponse` | Nothing is sent until the first chunk, so early failures can still be real HTTP errors |
 | Interceptor chain | `pipeline/` | Where rate limiting plugs in (week 2), and caching and cost tracking will (weeks 4–5) |
 | Atomic Lua script, Redis's clock | `ratelimit/*.lua` | Check-and-record can't interleave across instances, and every instance sees the same time |
+| Deadlines that can abort a call | `provider/call/` | A timer cancels the Apache request through a per-call handle, so a stuck call ends on time (also how a losing hedge is cancelled) |
+| Retry budget + circuit breaker | `resilience/` | During an outage, retries add a few percent instead of doubling load, and a dead provider stops being called |
+| Fail over only before the first byte | `ResilientExecutor` | Until a stream reaches the client it is just a request; after that, a clean error event is the honest answer |
 | Idle timeout, not total timeout | `HttpClientConfig` | A long healthy stream is fine; a stalled one is cut off (chosen by measurement) |
 
 ### How failures look to the client
@@ -162,6 +175,7 @@ flowchart LR
 | Missing or unknown API key | `401 missing_api_key` / `invalid_api_key` |
 | Over the client's request or token limit | `429 rate_limit_exceeded` with `Retry-After` |
 | Estimate larger than the client's whole token limit | `429 request_too_large_for_limit`, no `Retry-After` |
+| Every provider for the model has an open circuit breaker | `503 provider_circuit_open` |
 | Unknown model | `404 model_not_found` |
 | Invalid request body | `400 invalid_request_error` |
 | Provider rejected the request (400/404/422) | same status, provider's message |
@@ -180,6 +194,8 @@ gateway/                       the gateway (Spring Boot app)
   api/                         controller, streaming handler, error mapping, DTOs
   auth/                        API-key filter, client registry
   ratelimit/                   limiter interface, Redis + in-memory + fallback limiters, interceptor
+  resilience/                  circuit breaker, retry budget, backoff, executor, hedger
+  provider/call/               deadlines and cancellation of provider calls
   pipeline/                    ChatPipeline + interceptor chain
   routing/                     model → provider
   provider/                    adapter interface, shared SSE/stream code
@@ -249,6 +265,36 @@ The shared limiter holds exactly; per-instance limiting lets through about one f
 per instance. Tokens err slightly on the strict side because in-flight requests hold their
 estimate until reconciled. Method and caveats: design note 24.
 
+## Resilience
+
+- **Deadlines:** connect, idle, first byte, total (non-streaming) and a maximum stream
+  duration (long, healthy streams aren't cut off by the total).
+- **Circuit breaker per provider:** opens at ≥ 50% failures over the last 30 s (with at least
+  20 calls), stays open 30 s, then allows 3 trial calls. Written for this project rather than
+  using Resilience4j; design note 28 compares them.
+- **Retries:** one retry per provider for timeouts, I/O errors, 5xx and 429, after
+  `random(0, min(2 s, 100 ms × 2^retry))`. A per-provider budget keeps retries to ~10% of
+  traffic. Client errors (400) are never retried or failed over.
+- **Failover:** routes can list several providers in order, each with an optional model
+  override. Streams fail over only before their first byte reaches the client.
+- **Hedging (non-streaming):** if no answer arrives within the recent p95 latency (at least
+  300 ms), the request is sent again; the first success wins and the other call is cancelled.
+  At most 5% of requests are hedged, and only while the breaker is closed.
+
+### Measured (2026-11-17)
+
+20 requests/s, the normal Compose stack plus fault-injecting mocks (100 ms base latency),
+on GitHub Actions (`load-test/resilience.js`; design note 31 has the method and caveats):
+
+| Scenario | Success | p50 | p99 | Provider calls per request |
+|---|---|---|---|---|
+| Primary in full outage, failover to a backup | **100.00%** | 107 ms | 367 ms | 1.038 |
+| Same outage, no failover configured | 0.00% | – | – | 0.005 (the breaker answers) |
+| Provider with a 3% +2 s tail, **hedging on** | 100.00% | 106 ms | **410 ms** | 1.024 |
+| Same provider, hedging off | 100.00% | 106 ms | **2,107 ms** | 1.000 |
+
+During the outage the dead provider received 69 calls in 90 s instead of up to 3,600.
+
 ## Tests
 
 ```bash
@@ -267,9 +313,17 @@ script storage and cleanup, a Redis paused mid-run, and **two gateway instances 
 Redis: 200 parallel requests against a limit of 50 admit exactly 50**) use `REDIS_URL` if
 set, otherwise a Testcontainers Redis, and are skipped when neither is available.
 
-CI (GitHub Actions) runs all tests including the Redis ones, reports failing tests and
-Redis test counts as annotations visible without signing in, then starts the full Compose
-stack (nginx, three gateways, Redis, mock) and runs `scripts/smoke-test.sh` against it.
+Resilience is covered by `CircuitBreakerTest` (every state transition, with a fake clock and
+100-thread races), `ResilientExecutorTest` (scripted providers: retry, failover, client errors,
+open breakers, retry budget, streaming before and after the first byte), `HedgerTest` (timed
+fake calls: when to hedge, cancelling the loser), `CallDeadlinesTest` (a deliberately slow local
+server) and fault-injection tests that run several real mock providers (one down, one flapping,
+one breaking streams, one always slow).
+
+CI (GitHub Actions) runs all tests including the Redis ones, reports failing tests and the
+Redis and resilience test counts as annotations visible without signing in, then starts the
+full Compose stack (nginx, three gateways, Redis, mock) and runs `scripts/smoke-test.sh`
+against it.
 
 ## Benchmark: latency added by the gateway
 
@@ -332,7 +386,7 @@ smaller than the noise. That is why the headline table above uses a zero-latency
 
 1. ✅ Core proxy with streaming, OpenAI and Anthropic adapters, mock provider
 2. ✅ Distributed token-aware rate limiting (Redis + Lua, 3 gateway instances)
-3. Resilience: circuit breakers, retries with backoff and jitter, failover, hedged requests
+3. ✅ Resilience: circuit breakers, retries with backoff and jitter, failover, hedged requests
 4. Semantic cache, with an evaluation set measuring hit rate vs false hits
 5. Usage and cost accounting via Kafka into PostgreSQL, metrics, load tests
 
