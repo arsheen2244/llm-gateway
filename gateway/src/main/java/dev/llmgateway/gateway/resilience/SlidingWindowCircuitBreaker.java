@@ -1,26 +1,43 @@
 package dev.llmgateway.gateway.resilience;
 
 import java.time.Clock;
+import java.util.ArrayDeque;
+import java.util.Deque;
 
 /**
- * The circuit breaker state machine: failure rate over a sliding time window.
+ * The circuit breaker state machine: failure rate over a sliding time window
+ * (design notes 28-29). The behaviour is specified by the {@link CircuitBreaker} javadoc and
+ * pinned by {@code CircuitBreakerTest}.
  *
- * STATUS: stub, to be written by the project owner (week 3, step 4).
- * The behaviour is specified by the {@link CircuitBreaker} javadoc and checked by
- * {@code CircuitBreakerTest}. Read time only from {@code clock} (tests control it), and make
- * every method thread-safe. Design note 28 explains the choices behind the settings.
+ * <p><b>State it keeps:</b>
+ * <ul>
+ *   <li>CLOSED: a time-ordered log of recent outcomes and a running count of the failures in
+ *       it, so the failure rate is one division, not a recount.</li>
+ *   <li>OPEN: the moment it opened.</li>
+ *   <li>HALF_OPEN: how many trial calls are running and how many have succeeded.</li>
+ * </ul>
  *
- * Things you will need to decide (and be ready to explain):
- *   - how to store outcomes so that ones older than the window can be forgotten
- *     (a list of timestamps? fixed time buckets?), and what that costs in memory;
- *   - how to make state changes atomic when many threads report at once
- *     (synchronized? a ReentrantLock? atomics?). Note 2's rule about virtual threads applies:
- *     never block on I/O while holding a lock, but these methods do no I/O.
+ * <p><b>Thread safety:</b> every public method is {@code synchronized}, so a check and the
+ * update that follows it (e.g. "fewer than 3 trials? then take one") can never interleave
+ * with another thread's. Design note 2 avoids {@code synchronized} on virtual threads only
+ * around blocking I/O, which pins the carrier thread; these methods do no I/O and hold the
+ * lock for microseconds.
  */
 public class SlidingWindowCircuitBreaker implements CircuitBreaker {
 
+    /** One recorded call result in the CLOSED state's window. */
+    private record Outcome(long at, boolean failed) {
+    }
+
     private final CircuitBreakerConfig config;
     private final Clock clock;
+
+    private State state = State.CLOSED;
+    private final Deque<Outcome> window = new ArrayDeque<>(); // oldest first
+    private int failures;                                      // failures currently in window
+    private long openedAt;
+    private int trialsInUse;
+    private int trialSuccesses;
 
     public SlidingWindowCircuitBreaker(CircuitBreakerConfig config, Clock clock) {
         this.config = config;
@@ -28,27 +45,102 @@ public class SlidingWindowCircuitBreaker implements CircuitBreaker {
     }
 
     @Override
-    public boolean tryAcquirePermission() {
-        throw new UnsupportedOperationException("Circuit breaker not implemented yet (week 3, step 4)");
+    public synchronized boolean tryAcquirePermission() {
+        return switch (state) {
+            case CLOSED -> true;
+            case OPEN -> {
+                if (clock.millis() - openedAt >= config.openDuration().toMillis()) {
+                    // Waited long enough: move to HALF_OPEN lazily, and this caller is trial #1.
+                    state = State.HALF_OPEN;
+                    trialsInUse = 1;
+                    trialSuccesses = 0;
+                    yield true;
+                }
+                yield false;
+            }
+            case HALF_OPEN -> {
+                if (trialsInUse + trialSuccesses < config.halfOpenTrialCalls()) {
+                    trialsInUse++;
+                    yield true;
+                }
+                yield false;
+            }
+        };
     }
 
     @Override
-    public void onSuccess() {
-        throw new UnsupportedOperationException("Circuit breaker not implemented yet (week 3, step 4)");
+    public synchronized void onSuccess() {
+        switch (state) {
+            case CLOSED -> record(false);
+            case HALF_OPEN -> {
+                trialsInUse--;
+                trialSuccesses++;
+                if (trialSuccesses >= config.halfOpenTrialCalls()) {
+                    close();
+                }
+            }
+            case OPEN -> { } // a late result from a call allowed before it opened
+        }
     }
 
     @Override
-    public void onFailure() {
-        throw new UnsupportedOperationException("Circuit breaker not implemented yet (week 3, step 4)");
+    public synchronized void onFailure() {
+        switch (state) {
+            case CLOSED -> {
+                record(true);
+                if (window.size() >= config.minimumCalls()
+                        && (double) failures / window.size() >= config.failureRateThreshold()) {
+                    open();
+                }
+            }
+            case HALF_OPEN -> open(); // one failed trial is enough: back off for a full period
+            case OPEN -> { }          // a late result; must not extend the open period
+        }
     }
 
     @Override
-    public void onIgnored() {
-        throw new UnsupportedOperationException("Circuit breaker not implemented yet (week 3, step 4)");
+    public synchronized void onIgnored() {
+        if (state == State.HALF_OPEN && trialsInUse > 0) {
+            trialsInUse--; // give the trial slot back for a call that can tell us something
+        }
     }
 
     @Override
-    public State state() {
-        throw new UnsupportedOperationException("Circuit breaker not implemented yet (week 3, step 4)");
+    public synchronized State state() {
+        return state;
+    }
+
+    /** Adds an outcome to the window, then forgets everything older than the window. */
+    private void record(boolean failed) {
+        long now = clock.millis();
+        window.addLast(new Outcome(now, failed));
+        if (failed) {
+            failures++;
+        }
+        long cutoff = now - config.window().toMillis();
+        while (!window.isEmpty() && window.peekFirst().at() <= cutoff) {
+            if (window.removeFirst().failed()) {
+                failures--;
+            }
+        }
+    }
+
+    private void open() {
+        state = State.OPEN;
+        openedAt = clock.millis();
+        resetWindow();
+        trialsInUse = 0;
+        trialSuccesses = 0;
+    }
+
+    /** A fresh start: failures from before the provider recovered no longer count. */
+    private void close() {
+        state = State.CLOSED;
+        resetWindow();
+    }
+
+    private void resetWindow() {
+        window.clear();
+        failures = 0;
     }
 }

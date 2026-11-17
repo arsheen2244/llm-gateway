@@ -834,5 +834,44 @@ The trade-off: Resilience4j is battle-tested and far more configurable. Ours is 
 lines whose every behaviour is pinned by `CircuitBreakerTest`, with no dependency, which
 suits a project whose goal is to explain each mechanism.
 
-**Implementation:** `SlidingWindowCircuitBreaker`, written by the project owner (see the
-review in note 29).
+**Implementation:** `SlidingWindowCircuitBreaker`; the owner first planned to write it, then
+asked for it to be written for them, so note 29 explains it step by step.
+
+## 29. How `SlidingWindowCircuitBreaker` works
+
+**What it remembers:** the current `state`; in CLOSED, a deque of recent outcomes
+(`(time, failed)`, oldest first) plus a running `failures` count; in OPEN, `openedAt`; in
+HALF_OPEN, `trialsInUse` (trial calls still running) and `trialSuccesses`.
+
+**Each method:**
+- `tryAcquirePermission()`: CLOSED → yes. OPEN → no, unless `openDuration` has passed, in
+  which case it switches to HALF_OPEN and this caller becomes trial #1. HALF_OPEN → yes while
+  `trialsInUse + trialSuccesses < 3`, which takes a slot.
+- `onSuccess()`: CLOSED → record a success. HALF_OPEN → move one trial from "in use" to
+  "succeeded"; the third success closes the breaker with an empty window. OPEN → ignore.
+- `onFailure()`: CLOSED → record a failure, then open if `calls ≥ 20` and
+  `failures / calls ≥ 0.5`. HALF_OPEN → open again. OPEN → ignore, so a late failure can't
+  extend the open period.
+- `onIgnored()`: HALF_OPEN → give the trial slot back; otherwise nothing.
+
+**Recording** appends the outcome, then drops outcomes older than the window from the front
+of the deque, adjusting the failure count as they go. The rate is
+`(double) failures / window.size()`; without the cast, integer division would make 10/20 equal
+0 and the breaker would never open.
+
+**Thread safety:** every public method is `synchronized`. The dangerous sequences are
+check-then-act ("is a trial slot free? then take it"), and a lock around the whole method
+makes each one atomic. That is what lets 100 simultaneous callers in HALF_OPEN get exactly 3
+slots. Note 2 avoids `synchronized` on virtual threads only around blocking I/O (which pins
+the carrier thread); these methods do no I/O and hold the lock for microseconds.
+*Rejected:* lock-free atomics. Several fields change together (state, counters, the window),
+so compare-and-set on each separately would let them disagree; a single lock is simpler and
+fast enough here.
+
+**Memory, a known trade-off:** the window stores every outcome of the last 30 s, so at
+1,000 calls/s to one provider it holds ~30,000 small entries. *Rejected for now:* fixed time
+buckets (e.g. 30 one-second buckets of counts), which use constant memory but round the
+window's edge to a bucket boundary. Buckets would be the next step at high traffic.
+
+**Opening clears the window, and so does closing.** Old failures must not count against a
+provider that has just proven itself with three successful trials.
