@@ -1,0 +1,63 @@
+name: Rate-limit drift
+
+# Measures how far admitted traffic drifts from the configured limits with three gateway
+# instances behind nginx, once per limiter backend (design note 24).
+on:
+  workflow_dispatch:
+    inputs:
+      duration:
+        description: "How long to send traffic (k6 duration)"
+        default: "3m"
+  # workflow_dispatch only offers a "Run workflow" button once this file is on main, so
+  # until then (and whenever the test itself changes) a push also runs it.
+  push:
+    paths:
+      - load-test/rate-limit-drift.js
+      - load-test/drift_report.py
+      - .github/workflows/rate-limit-drift.yml
+
+jobs:
+  drift:
+    name: Drift (${{ matrix.backend }})
+    runs-on: ubuntu-latest
+    # Each backend gets its own runner, so the two measurements cannot disturb each other.
+    strategy:
+      fail-fast: false
+      matrix:
+        backend: [redis, in-memory]
+    env:
+      RATE_LIMIT_BACKEND: ${{ matrix.backend }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: grafana/setup-k6-action@v1
+
+      - name: Start nginx, 3 gateways, Redis and the mock
+        run: |
+          docker compose build
+          docker compose up -d
+
+      - name: Wait until the stack answers
+        run: bash scripts/smoke-test.sh http://localhost:8080
+
+      - name: Send traffic above the limits
+        run: k6 run --quiet --out json=drift.json -e DURATION=${{ inputs.duration || '3m' }} load-test/rate-limit-drift.js
+
+      - name: Compute drift (published as notices on the run page)
+        if: always()
+        run: python3 load-test/drift_report.py drift.json --backend ${{ matrix.backend }} --markdown drift-${{ matrix.backend }}.md
+
+      - name: Keep the report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: drift-${{ matrix.backend }}
+          path: drift-${{ matrix.backend }}.md
+
+      - name: Show logs on failure
+        if: failure()
+        run: docker compose logs --tail 200
+
+      - name: Stop stack
+        if: always()
+        run: docker compose down

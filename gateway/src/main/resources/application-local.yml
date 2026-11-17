@@ -17,3 +17,15 @@ gateway:
         key-sha256: 3e3a73ab2b4bbd90f468a4b2dd3960a54265f01d30565d4f2b3f29ab5260037d
         requests-per-minute: 1000000
         tokens-per-minute: 1000000000
+      # Clients for the rate-limit drift test (load-test/rate-limit-drift.js). Each has
+      # exactly one limit that binds, so the two limits are measured separately.
+      - id: drift-requests
+        # SHA-256 of "drift-requests-key"
+        key-sha256: 85581cea6721f4592ebb9d12652608aa126dd5823f3f7e4ed16a81cabcf718d8
+        requests-per-minute: 300
+        tokens-per-minute: 1000000000
+      - id: drift-tokens
+        # SHA-256 of "drift-tokens-key"
+        key-sha256: 490f6ed12ed25f8badcf1833d2b4fbdc139f99325c3a7395a518bee5bc8bbd19
+        requests-per-minute: 1000000
+        tokens-per-minute: 3000
