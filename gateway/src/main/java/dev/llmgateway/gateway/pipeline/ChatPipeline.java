@@ -9,6 +9,7 @@ import dev.llmgateway.gateway.observability.LogFields;
 import dev.llmgateway.gateway.provider.AdapterRegistry;
 import dev.llmgateway.gateway.provider.ChunkSink;
 import dev.llmgateway.gateway.provider.ProviderException;
+import dev.llmgateway.gateway.provider.call.ProviderCaller;
 import dev.llmgateway.gateway.routing.ModelRouter;
 import dev.llmgateway.gateway.routing.ProviderConfig;
 import org.slf4j.MDC;
@@ -25,12 +26,15 @@ public class ChatPipeline {
     private final ModelRouter router;
     private final AdapterRegistry adapters;
     private final List<ChatInterceptor> interceptors;
+    private final ProviderCaller caller;
 
-    /** Spring injects every ChatInterceptor bean, sorted by @Order (none in week 1). */
-    public ChatPipeline(ModelRouter router, AdapterRegistry adapters, List<ChatInterceptor> interceptors) {
+    /** Spring injects every ChatInterceptor bean, sorted by @Order. */
+    public ChatPipeline(ModelRouter router, AdapterRegistry adapters, List<ChatInterceptor> interceptors,
+                        ProviderCaller caller) {
         this.router = router;
         this.adapters = adapters;
         this.interceptors = List.copyOf(interceptors);
+        this.caller = caller;
     }
 
     public ChatCompletionResponse complete(ChatCompletionRequest request, ClientIdentity client,
@@ -60,6 +64,7 @@ public class ChatPipeline {
     }
 
     private InterceptorChain chainFor(ChatContext context) {
-        return new InterceptorChain(interceptors, adapters.forType(context.provider().type()));
+        // Every provider call runs under the first-byte / total / stream deadlines (note 26).
+        return new InterceptorChain(interceptors, caller.withDeadlines(adapters.forType(context.provider().type())));
     }
 }

@@ -10,7 +10,8 @@ import org.apache.hc.core5.http.io.SocketConfig;
 import org.apache.hc.core5.util.Timeout;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
-import org.springframework.http.client.HttpComponentsClientHttpRequestFactory;
+import dev.llmgateway.gateway.provider.call.CancellableRequestFactory;
+import dev.llmgateway.gateway.provider.call.FirstByteInterceptor;
 import org.springframework.web.client.RestClient;
 
 /**
@@ -64,8 +65,15 @@ public class HttpClientConfig {
                 .build();
     }
 
+    /**
+     * The factory binds each request to the current call's {@code CallControl} so it can be
+     * aborted; the interceptor records when response headers arrive (design note 26).
+     */
     @Bean
     RestClient providerRestClient(RestClient.Builder builder, CloseableHttpClient providerHttpClient) {
-        return builder.requestFactory(new HttpComponentsClientHttpRequestFactory(providerHttpClient)).build();
+        return builder
+                .requestFactory(new CancellableRequestFactory(providerHttpClient))
+                .requestInterceptor(new FirstByteInterceptor())
+                .build();
     }
 }

@@ -71,7 +71,7 @@ class ProviderHttpClientTest {
         GatewayProperties properties = new GatewayProperties(
                 Map.of("p", new Provider("openai", "http://unused", "k")),
                 List.of(Route.single("*", "p")),
-                new Timeouts(Duration.ofSeconds(2), Duration.ofSeconds(1)));
+                Timeouts.of(Duration.ofSeconds(2), Duration.ofSeconds(1)));
         HttpClientConfig config = new HttpClientConfig();
         httpClient = config.providerHttpClient(properties);
         RestClient restClient = config.providerRestClient(RestClient.builder(), httpClient);

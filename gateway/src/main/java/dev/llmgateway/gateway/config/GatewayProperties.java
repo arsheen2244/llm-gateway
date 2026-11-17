@@ -65,10 +65,24 @@ public record GatewayProperties(
 
     /**
      * @param connect how long to wait for a TCP connection to a provider
-     * @param read    longest allowed silence while waiting for the provider:
-     *                before the first byte and between bytes of a stream.
-     *                It is not a cap on total duration, so long streams are fine.
+     * @param read              longest allowed silence while waiting for the provider:
+     *                          before the first byte and between bytes of a stream.
+     *                          It is not a cap on total duration, so long streams are fine.
+     * @param firstByte         the provider's response headers must arrive within this
+     * @param total             a non-streaming call must finish within this
+     * @param streamMaxDuration a stream must finish within this (instead of {@code total},
+     *                          so long, healthy answers aren't cut off; design note 26)
      */
-    public record Timeouts(@DefaultValue("5s") Duration connect, @DefaultValue("60s") Duration read) {
+    public record Timeouts(
+            @DefaultValue("5s") Duration connect,
+            @DefaultValue("60s") Duration read,
+            @DefaultValue("60s") Duration firstByte,
+            @DefaultValue("120s") Duration total,
+            @DefaultValue("10m") Duration streamMaxDuration) {
+
+        /** Connect and idle only, with the other deadlines at their defaults. */
+        public static Timeouts of(Duration connect, Duration read) {
+            return new Timeouts(connect, read, Duration.ofSeconds(60), Duration.ofSeconds(120), Duration.ofMinutes(10));
+        }
     }
 }

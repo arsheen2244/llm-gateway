@@ -746,3 +746,49 @@ a configured provider.
   order inside provider definitions and makes per-model differences impossible.
 - *Weighted load balancing across providers:* useful for spreading cost, but a different
   feature. Failover is about order of preference, not about splitting traffic.
+
+## 26. Deadlines on every provider call, and cancelling a call in flight
+
+**Five limits on one provider call:**
+
+| Limit | Default | Enforced by | Applies to |
+|---|---|---|---|
+| connect | 5 s | Apache HttpClient | every call |
+| idle (silence between bytes) | 60 s | Apache socket timeout (note 16) | every call |
+| first byte (response headers) | 60 s | our timer | every call |
+| total | 120 s | our timer | non-streaming calls |
+| max stream duration | 10 min | our timer | streams, instead of total |
+
+**Why streams don't get the total:** a long, healthy answer streams for minutes. Its
+real health signals are "did it start?" (first byte) and "is it still moving?" (idle).
+A separate, generous maximum only guards against a stream that trickles forever.
+
+**How a timer stops a call:** Spring's `RestClient` hides Apache's request object, so
+`CancellableRequestFactory` (a subclass of Spring's Apache factory, overriding its protected
+`createHttpUriRequest`) binds each request to the current call's `CallControl`, passed via
+a thread-local because the request is created on the calling thread. `CallControl.stop()`
+calls Apache's `cancel()`, which aborts the socket, so the thread blocked reading fails at
+once. A `RestClient` interceptor marks the moment response headers arrive, which disarms the
+first-byte timer. `ProviderCaller` runs the call, arms and disarms the timers (one shared
+scheduler thread, since timer tasks only flip a flag and abort a socket), and reports a
+deadline-caused failure as `TIMEOUT`, saying which deadline fired (so it maps to 504 and is
+retryable). A stream that had already started keeps `STREAM_INTERRUPTED`, because the
+client has data.
+
+The same `CallControl` is how a losing hedged request will be cancelled (note 30).
+
+**Rejected:**
+- *`Future.cancel(true)` / thread interrupts:* blocking socket reads don't respond to
+  interrupts, so the thread would keep waiting.
+- *Apache's `RequestConfig.responseTimeout` for the first byte:* in the classic client it
+  becomes the socket timeout for the whole exchange, so it would also cap the silence
+  between stream chunks, conflating two different limits.
+- *Moving the adapters from `RestClient` to Apache's API directly:* would work, but means
+  rewriting every adapter's HTTP code, for one hook that Spring already offers.
+
+**Tested** (`CallDeadlinesTest`, slow local server, real client):
+- no headers within 500 ms gives `TIMEOUT` in under 1.5 s (the server would wait 3 s);
+- a body trickling for 3 s after fast headers hits the 1 s total;
+- a 1.2 s stream survives a 1 s total (under the 1.5 s stream maximum), while a 3 s
+  stream is interrupted;
+- cancelling from another thread ends a stream in under 1 s.
