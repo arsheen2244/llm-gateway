@@ -1,8 +1,13 @@
 name: Cache threshold sweep
 
-# Run by hand (Actions tab > Cache threshold sweep > Run workflow) once every pair in
-# eval/cache-pairs.json is reviewed. The script refuses to report results before that.
+# Runs when the labelled pairs or the script change, or by hand (Actions tab > Cache threshold
+# sweep > Run workflow). The script refuses to report results while any pair is unreviewed.
 on:
+  push:
+    paths:
+      - eval/cache-pairs.json
+      - eval/sweep_threshold.py
+      - .github/workflows/cache-threshold.yml
   workflow_dispatch:
 
 jobs:
