@@ -1,4 +1,22 @@
-# LLM Gateway
+<div align="center">
+
+# 🚦 LLM Gateway
+
+**One OpenAI‑compatible endpoint in front of every LLM provider, with routing, streaming, token‑aware rate limiting and production‑grade resilience.**
+
+![Java](https://img.shields.io/badge/Java-21%20·%20virtual%20threads-ED8B00?logo=openjdk&logoColor=white)
+![Spring Boot](https://img.shields.io/badge/Spring%20Boot-3-6DB33F?logo=springboot&logoColor=white)
+![Redis](https://img.shields.io/badge/Redis-7.4%20+%20Lua-DC382D?logo=redis&logoColor=white)
+![nginx](https://img.shields.io/badge/nginx-load%20balancer-009639?logo=nginx&logoColor=white)
+![Docker](https://img.shields.io/badge/Docker%20Compose-2496ED?logo=docker&logoColor=white)
+![k6](https://img.shields.io/badge/k6-load%20tests-7D64FF?logo=k6&logoColor=white)
+![Testcontainers](https://img.shields.io/badge/Testcontainers-291A3F)
+![OpenAI](https://img.shields.io/badge/OpenAI-adapter-412991?logo=openai&logoColor=white)
+![Anthropic](https://img.shields.io/badge/Anthropic-adapter-D97757?logo=anthropic&logoColor=white)
+
+</div>
+
+---
 
 A proxy that sits in front of LLM provider APIs. Clients call **one OpenAI-compatible
 endpoint**. The gateway routes each request to the right provider (OpenAI, Anthropic,
@@ -36,6 +54,20 @@ code that still handles many open streams).
 - Structured JSON logs with a request ID and client ID on every line
 - Docker Compose with **nginx in front of three gateway instances** sharing one Redis,
   k6 tests (latency overhead, rate-limit drift), and GitHub Actions CI
+
+## 🧰 Tech stack
+
+| Layer | Technology |
+|------|-----------|
+| Language / runtime | Java 21 with virtual threads (Spring MVC: blocking code, many open streams) |
+| Framework | Spring Boot 3: Web, Validation, Data Redis. Multi‑module Maven build (`gateway`, `mock-provider`) |
+| HTTP client | Apache HttpClient 5, with per‑call cancellation handles for deadlines and hedging |
+| Rate limiting | Redis sliding windows updated atomically by Lua scripts, with a local fallback when Redis is down |
+| Resilience | Per‑provider circuit breakers, retry budget, exponential backoff with full jitter, ordered failover, hedged requests |
+| Streaming | Server‑Sent Events relay with format translation (OpenAI ⇄ Anthropic) |
+| Infra | Docker Compose: nginx → 3 gateway instances → Redis, plus a mock provider |
+| Testing | JUnit 5, Spring Boot Test, Testcontainers, k6 (overhead, rate‑limit drift, resilience) with Python report scripts |
+| CI | GitHub Actions |
 
 ## Quick start
 
