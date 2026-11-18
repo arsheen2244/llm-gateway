@@ -24,6 +24,10 @@ jobs:
       - name: Build and test
         run: ./mvnw -B verify
 
+      # The semantic-cache threshold sweep's own logic (eval/, design note 36).
+      - name: Eval script tests
+        run: python3 -m unittest discover eval
+
       # Raw logs and step summaries need a GitHub login; annotations do not. On failure,
       # turn each failing test into an annotation (test name + error line) so anyone
       # viewing the run can see what broke. GitHub shows up to 10 errors and 10 warnings
@@ -77,6 +81,10 @@ jobs:
       # The model downloads on first start, so allow a few minutes.
       - name: Embedding service answers
         run: bash scripts/check-embeddings.sh http://localhost:8082
+
+      # Embeds every labelled pair through the real service; prints no rates (design note 36).
+      - name: Threshold sweep runs (check only)
+        run: python3 eval/sweep_threshold.py --check-only
 
       - name: Show logs on failure
         if: failure()

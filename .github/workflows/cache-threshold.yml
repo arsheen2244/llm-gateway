@@ -1,0 +1,41 @@
+name: Cache threshold sweep
+
+# Run by hand (Actions tab > Cache threshold sweep > Run workflow) once every pair in
+# eval/cache-pairs.json is reviewed. The script refuses to report results before that.
+on:
+  workflow_dispatch:
+
+jobs:
+  sweep:
+    name: Sweep similarity threshold
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # Only the embedding service is needed: the same image and model as the gateway uses.
+      - name: Start embedding service
+        run: docker compose up -d embeddings
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install plotting library
+        run: pip install matplotlib==3.9.2
+
+      - name: Sweep
+        run: python eval/sweep_threshold.py --out results
+
+      # Annotations are public (raw logs need a GitHub login): one notice per threshold.
+      - name: Publish table as annotations
+        if: success()
+        run: |
+          tail -n +2 results/threshold-sweep.csv | while IFS=, read -r t hit false hits falsehits; do
+            echo "::notice title=threshold $t::hit rate $hit ($hits pairs), false-hit rate $false ($falsehits pairs)"
+          done
+
+      - uses: actions/upload-artifact@v4
+        if: success()
+        with:
+          name: threshold-sweep
+          path: results/

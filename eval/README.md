@@ -25,3 +25,27 @@ The threshold sweep (step 6) refuses to print results while any pair has `"revie
 **Rule of thumb for a label:** would one correct, cached answer to `a` also be a correct and
 complete answer to `b`? If yes, `hit`. If a careful reader would call it wrong or missing
 something, `no_hit`.
+
+## Running the sweep
+
+`sweep_threshold.py` embeds both prompts of every pair with the same embedding service the
+gateway uses (Compose service `embeddings`, model `BAAI/bge-small-en-v1.5`), normalizes text
+the same way the gateway does, and for each threshold from 0.70 to 0.99 reports:
+
+- **hit rate:** share of `hit` pairs at or above the threshold (paraphrases served from cache);
+- **false-hit rate:** share of `no_hit` pairs at or above it (wrong answers served).
+
+It writes `results/threshold-sweep.md` (table, plus the pairs the best candidate thresholds
+still get wrong), `threshold-sweep.csv`, `threshold-sweep.png` and `pair-similarities.csv`.
+
+- **In GitHub Actions** (no Docker needed locally): Actions tab → *Cache threshold sweep* →
+  *Run workflow*. The table appears as annotations on the run, and the files as an artifact.
+- **With Docker:** `docker compose up -d embeddings`, then
+  `python eval/sweep_threshold.py` (needs `pip install matplotlib` for the plot).
+
+CI runs `--check-only` on every push: it embeds every pair through the real service to show
+the pipeline works, but prints no rates. Tests: `python -m unittest discover eval`.
+
+**Simplification:** each pair is scored on its own. In the gateway, a prompt is compared with
+every cached prompt in its scope and the nearest one wins, so with many cached entries a
+false hit can also come from a third prompt.
