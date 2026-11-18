@@ -35,7 +35,7 @@ class PausedRedisFallbackTest {
     static void startRedis() {
         Assumptions.assumeTrue(DockerClientFactory.instance().isDockerAvailable(),
                 "Needs Docker to pause a Redis container (runs in CI)");
-        redis = new GenericContainer<>(DockerImageName.parse("redis:7.4-alpine")).withExposedPorts(6379);
+        redis = new GenericContainer<>(DockerImageName.parse("redis:8.2")).withExposedPorts(6379);
         redis.start();
         LettuceConnectionFactory factory = new LettuceConnectionFactory(
                 new RedisStandaloneConfiguration(redis.getHost(), redis.getMappedPort(6379)),

@@ -1147,3 +1147,50 @@ pair (a sanity check, not a measurement; the threshold comes from the labelled e
 
 *Not done:* pinning the model to a specific Hugging Face revision; the image tag is pinned
 (`cpu-1.8.1`), the model files are not.
+
+## 35. Semantic layer: Redis vector search
+
+**Owner's choice:** store prompt embeddings in **Redis with vector search**, the Redis that
+already holds rate limits and exact entries. Compose and the Redis tests move from
+`redis:7.4-alpine` to **`redis:8.2`**, which has the query engine (search and vectors) built in.
+*Rejected:* a separate vector database (pgvector, Qdrant): one more service to run and keep
+in sync, for a cache that holds thousands of entries per scope, not millions.
+
+**Lookup order:** exact key first (one `GET`), then, only for single-turn requests (note 32):
+1. embed the normalized user message (note 34);
+2. search **within the request's scope** (client, model, system prompt, sampling
+   parameters) for the nearest cached prompt;
+3. hit if cosine similarity ≥ `gateway.cache.similarity-threshold`: `X-Cache: semantic` plus
+   **`X-Cache-Similarity`** (e.g. `0.9612`), so a client or the evaluation can see how close the
+   match was.
+
+On a miss, the answer is stored in **both** layers, reusing the embedding from the lookup (one
+embedding call per request at most). A semantic miss costs one embedding call plus one search
+before the provider call; that overhead goes into the week-5 load test, not guessed here.
+
+**Storage:** each answer is a Redis hash `cache:sem:<uuid>` with `scope` (TAG), `vector`
+(384 float32, little-endian) and `answer` (JSON), plus a TTL. The index:
+
+```
+FT.CREATE cache-semantic ON HASH PREFIX 1 cache:sem:
+  SCHEMA scope TAG  vector VECTOR FLAT 6 TYPE FLOAT32 DIM 384 DISTANCE_METRIC COSINE
+```
+
+- **Scope as a TAG filter inside the KNN query** (`(@scope:{…})=>[KNN 1 @vector $vec]`), so the
+  search only ever considers this client's entries for this model, system prompt and settings.
+  One client can never receive another's answer, even at similarity 1.0.
+- **FLAT (exact) rather than HNSW (approximate):** a scope holds thousands of entries, where an
+  exact scan is fast, and exact search means production finds the same nearest neighbour the
+  threshold evaluation found. HNSW is the switch if scopes grow to hundreds of thousands.
+- **The index is created on first use**, by whichever instance gets there first ("already
+  exists" is ignored), so a gateway can start while Redis is down.
+- **Expiry:** Redis TTLs on the hashes; expired hashes leave the index on their own.
+- **The search runs inside a small Lua script** (`cache/semantic_search.lua`). Not for
+  atomicity: inside a script the reply always has the classic RESP2 shape, whatever protocol
+  the client connection negotiated (Lettuce prefers RESP3, where `FT.SEARCH` replies are maps).
+  Redis reports cosine *distance*; similarity = 1 − distance.
+
+**In-memory store:** the same behaviour with a linear scan of the scope's entries, for a single
+instance and the unit tests.
+
+**Threshold:** `0.95` is a placeholder; note 36 chooses it from the labelled evaluation.

@@ -23,7 +23,8 @@ import org.testcontainers.utility.DockerImageName;
  */
 public final class RedisTestSupport {
 
-    private static final String IMAGE = "redis:7.4-alpine";
+    /** Redis 8 has vector search built in (the semantic cache, design note 35). */
+    private static final String IMAGE = "redis:8.2";
     private static GenericContainer<?> container;
     private static String url;
 

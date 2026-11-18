@@ -4,6 +4,7 @@ import java.time.Clock;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.regex.Pattern;
@@ -30,10 +31,14 @@ import org.springframework.core.Ordered;
  *       {@code X-Cache: bypass}, and the call goes through untouched.</li>
  *   <li>Exact hit: answered from the cache ({@code X-Cache: exact}); no provider is called.
  *       Streams get the cached answer replayed as SSE.</li>
- *   <li>Miss ({@code X-Cache: miss}): the call goes through, and a completed answer is stored.
- *       Failed calls and broken streams are never stored.</li>
+ *   <li>Otherwise, for single-turn requests, the semantic layer: embed the user message and
+ *       look for a cached prompt in the same scope with similarity at or above the threshold
+ *       ({@code X-Cache: semantic}, plus {@code X-Cache-Similarity}).</li>
+ *   <li>Miss ({@code X-Cache: miss}): the call goes through, and a completed answer is stored
+ *       in both layers. Failed calls and broken streams are never stored.</li>
  * </ul>
- * The cache must never fail a request: errors from the store are logged and treated as misses.
+ * The cache must never fail a request: errors from the store or the embedding service are
+ * logged and treated as misses.
  */
 public class CacheInterceptor implements ChatInterceptor, Ordered {
 
@@ -46,13 +51,39 @@ public class CacheInterceptor implements ChatInterceptor, Ordered {
     private final CacheStore store;
     private final CacheEligibility eligibility;
     private final Duration ttl;
+    private final Embedder embedder; // null: semantic layer off
+    private final boolean semanticEnabled;
+    private final double threshold;
     private final Clock clock;
 
+    /** Exact layer only. */
     public CacheInterceptor(CacheStore store, CacheProperties properties, Clock clock) {
+        this(store, properties, null, clock);
+    }
+
+    public CacheInterceptor(CacheStore store, CacheProperties properties, Embedder embedder, Clock clock) {
         this.store = store;
         this.eligibility = new CacheEligibility(properties.maxTemperature());
         this.ttl = properties.ttl();
+        this.embedder = embedder;
+        this.semanticEnabled = properties.semanticEnabled() && embedder != null;
+        this.threshold = properties.similarityThreshold();
         this.clock = clock;
+    }
+
+    /**
+     * What the lookup found, plus what a miss needs to store its answer: the exact key, and
+     * the scope and embedding when the semantic layer applies (so the prompt is embedded once).
+     */
+    private record Lookup(Optional<CachedAnswer> hit, String exactKey, String scope, float[] vector) {
+
+        static Lookup hit(CachedAnswer answer) {
+            return new Lookup(Optional.of(answer), null, null, null);
+        }
+
+        static Lookup miss(String exactKey, String scope, float[] vector) {
+            return new Lookup(Optional.empty(), exactKey, scope, vector);
+        }
     }
 
     @Override
@@ -65,15 +96,12 @@ public class CacheInterceptor implements ChatInterceptor, Ordered {
         if (!usable(context)) {
             return chain.complete(context);
         }
-        String key = CacheKeys.exact(context.client().id(), context.request());
-        Optional<CachedAnswer> hit = lookup(key);
-        if (hit.isPresent()) {
-            context.responseHeaders().set(CacheHeaders.X_CACHE, CacheHeaders.EXACT);
-            return toResponse(hit.get());
+        Lookup lookup = lookup(context);
+        if (lookup.hit().isPresent()) {
+            return toResponse(lookup.hit().get());
         }
-        context.responseHeaders().set(CacheHeaders.X_CACHE, CacheHeaders.MISS);
         ChatCompletionResponse response = chain.complete(context);
-        fromResponse(response).ifPresent(answer -> save(key, answer));
+        fromResponse(response).ifPresent(answer -> save(lookup, answer));
         return response;
     }
 
@@ -83,21 +111,18 @@ public class CacheInterceptor implements ChatInterceptor, Ordered {
             chain.stream(context, sink);
             return;
         }
-        String key = CacheKeys.exact(context.client().id(), context.request());
-        Optional<CachedAnswer> hit = lookup(key);
-        if (hit.isPresent()) {
-            context.responseHeaders().set(CacheHeaders.X_CACHE, CacheHeaders.EXACT);
-            replay(hit.get(), sink);
+        Lookup lookup = lookup(context);
+        if (lookup.hit().isPresent()) {
+            replay(lookup.hit().get(), sink);
             return;
         }
-        context.responseHeaders().set(CacheHeaders.X_CACHE, CacheHeaders.MISS);
         StreamCollector collected = new StreamCollector();
         chain.stream(context, chunk -> {
             collected.add(chunk);
             sink.accept(chunk);
         });
         // Only reached if the stream completed; a broken one threw and is never stored.
-        collected.answer().ifPresent(answer -> save(key, answer));
+        collected.answer().ifPresent(answer -> save(lookup, answer));
     }
 
     private boolean usable(ChatContext context) {
@@ -108,7 +133,34 @@ public class CacheInterceptor implements ChatInterceptor, Ordered {
         return usable;
     }
 
-    private Optional<CachedAnswer> lookup(String key) {
+    /** Exact layer first (cheap: one key lookup), then the semantic layer. Sets X-Cache. */
+    private Lookup lookup(ChatContext context) {
+        String exactKey = CacheKeys.exact(context.client().id(), context.request());
+        Optional<CachedAnswer> exact = getExact(exactKey);
+        if (exact.isPresent()) {
+            context.responseHeaders().set(CacheHeaders.X_CACHE, CacheHeaders.EXACT);
+            return Lookup.hit(exact.get());
+        }
+        context.responseHeaders().set(CacheHeaders.X_CACHE, CacheHeaders.MISS);
+        if (!semanticEnabled || !eligibility.semanticEligible(context.request())) {
+            return Lookup.miss(exactKey, null, null);
+        }
+        String scope = CacheKeys.scope(context.client().id(), context.request());
+        float[] vector = embed(CacheKeys.semanticText(context.request()));
+        if (vector == null) {
+            return Lookup.miss(exactKey, null, null);
+        }
+        Optional<SemanticMatch> match = findSimilar(scope, vector);
+        if (match.isPresent()) {
+            context.responseHeaders().set(CacheHeaders.X_CACHE, CacheHeaders.SEMANTIC);
+            context.responseHeaders().set(CacheHeaders.X_CACHE_SIMILARITY,
+                    String.format(Locale.ROOT, "%.4f", match.get().similarity()));
+            return Lookup.hit(match.get().answer());
+        }
+        return Lookup.miss(exactKey, scope, vector);
+    }
+
+    private Optional<CachedAnswer> getExact(String key) {
         try {
             return store.getExact(key);
         } catch (RuntimeException e) {
@@ -117,9 +169,32 @@ public class CacheInterceptor implements ChatInterceptor, Ordered {
         }
     }
 
-    private void save(String key, CachedAnswer answer) {
+    /** @return the embedding, or null if the service failed (the semantic layer is skipped) */
+    private float[] embed(String text) {
         try {
-            store.putExact(key, answer, ttl);
+            return embedder.embed(text);
+        } catch (RuntimeException e) {
+            log.warn("Embedding failed; skipping the semantic cache: {}", e.toString());
+            return null;
+        }
+    }
+
+    private Optional<SemanticMatch> findSimilar(String scope, float[] vector) {
+        try {
+            return store.findSimilar(scope, vector, threshold);
+        } catch (RuntimeException e) {
+            log.warn("Semantic cache lookup failed; treating as a miss: {}", e.toString());
+            return Optional.empty();
+        }
+    }
+
+    /** Both layers; the semantic one only when this request was embedded. */
+    private void save(Lookup lookup, CachedAnswer answer) {
+        try {
+            store.putExact(lookup.exactKey(), answer, ttl);
+            if (lookup.vector() != null) {
+                store.putSemantic(lookup.scope(), lookup.vector(), answer, ttl);
+            }
         } catch (RuntimeException e) {
             log.warn("Cache store failed; answer not cached: {}", e.toString());
         }

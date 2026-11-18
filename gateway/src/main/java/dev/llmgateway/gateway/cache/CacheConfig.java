@@ -19,15 +19,17 @@ public class CacheConfig {
 
     /** Redis is only touched when the redis store is chosen, as with the rate limiter. */
     @Bean
-    CacheStore cacheStore(CacheProperties properties, ObjectProvider<StringRedisTemplate> redis, ObjectMapper json) {
+    CacheStore cacheStore(CacheProperties properties, EmbeddingProperties embedding,
+            ObjectProvider<StringRedisTemplate> redis, ObjectMapper json) {
         return switch (properties.store()) {
             case IN_MEMORY -> new InMemoryCacheStore(Clock.systemUTC());
-            case REDIS -> new RedisCacheStore(redis.getObject(), json);
+            case REDIS -> new RedisCacheStore(redis.getObject(), json, embedding.dimensions());
         };
     }
 
+    /** No embedder (semantic layer off): only the exact layer runs. */
     @Bean
-    CacheInterceptor cacheInterceptor(CacheStore store, CacheProperties properties) {
-        return new CacheInterceptor(store, properties, Clock.systemUTC());
+    CacheInterceptor cacheInterceptor(CacheStore store, CacheProperties properties, ObjectProvider<Embedder> embedder) {
+        return new CacheInterceptor(store, properties, embedder.getIfAvailable(), Clock.systemUTC());
     }
 }

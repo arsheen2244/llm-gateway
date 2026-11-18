@@ -165,6 +165,16 @@ class CacheInterceptorTest {
             public void putExact(String key, CachedAnswer answer, Duration ttl) {
                 throw new IllegalStateException("Redis down");
             }
+
+            @Override
+            public java.util.Optional<SemanticMatch> findSimilar(String scope, float[] vector, double min) {
+                throw new IllegalStateException("Redis down");
+            }
+
+            @Override
+            public void putSemantic(String scope, float[] vector, CachedAnswer answer, Duration ttl) {
+                throw new IllegalStateException("Redis down");
+            }
         };
         CacheInterceptor withBrokenStore = new CacheInterceptor(broken,
                 new CacheProperties(true, CacheProperties.Store.REDIS, Duration.ofMinutes(10), 0.3, true, 0.95), clock);
@@ -172,9 +182,122 @@ class CacheInterceptorTest {
         ChatCompletionResponse response = withBrokenStore.complete(context("team-a", CACHEABLE), provider);
 
         assertThat(response.choices()).isNotEmpty();
+
+        CacheInterceptor semanticWithBrokenStore = new CacheInterceptor(broken, semanticProperties(0.9),
+                new FakeEmbedder(), clock);
+        assertThat(semanticWithBrokenStore.complete(context("team-a", CACHEABLE), provider).choices()).isNotEmpty();
+    }
+
+    // ---- semantic layer (design notes 34-35) ----
+
+    @Test
+    void similarPromptAboveTheThresholdIsASemanticHit() {
+        FakeEmbedder embedder = new FakeEmbedder()
+                .text("How do I reverse a list in Python?", 1.0)
+                .text("What's the way to reverse a Python list?", 0.95);
+        CacheInterceptor semantic = new CacheInterceptor(store, semanticProperties(0.9), embedder, clock);
+
+        semantic.complete(context("team-a", request(0.0, "How do I reverse a list in Python?")), provider);
+        ChatContext paraphrase = context("team-a", request(0.0, "What's the way to reverse a Python list?"));
+        ChatCompletionResponse cached = semantic.complete(paraphrase, provider);
+
+        assertThat(paraphrase.responseHeaders().asMap())
+                .containsEntry("X-Cache", "semantic")
+                .containsEntry("X-Cache-Similarity", "0.9500");
+        assertThat(provider.calls).isEqualTo(1);
+        assertThat(cached.choices().get(0).message().content()).isEqualTo("Redis is an in-memory data store.");
+    }
+
+    @Test
+    void similarPromptBelowTheThresholdIsAMissAndIsStored() {
+        FakeEmbedder embedder = new FakeEmbedder()
+                .text("Convert 5 miles to km", 1.0)
+                .text("Convert 5 km to miles", 0.85);
+        CacheInterceptor semantic = new CacheInterceptor(store, semanticProperties(0.9), embedder, clock);
+
+        semantic.complete(context("team-a", request(0.0, "Convert 5 miles to km")), provider);
+        ChatContext lookAlike = context("team-a", request(0.0, "Convert 5 km to miles"));
+        semantic.complete(lookAlike, provider);
+        ChatContext again = context("team-a", request(0.0, "Convert 5 km to miles"));
+        semantic.complete(again, provider);
+
+        assertThat(lookAlike.responseHeaders().asMap()).containsEntry("X-Cache", "miss");
+        assertThat(again.responseHeaders().asMap()).containsEntry("X-Cache", "exact");
+        assertThat(provider.calls).isEqualTo(2);
+    }
+
+    @Test
+    void semanticHitsStayWithinTheClientsScope() {
+        FakeEmbedder embedder = new FakeEmbedder().text("What is Redis?", 1.0).text("what's redis", 0.99);
+        CacheInterceptor semantic = new CacheInterceptor(store, semanticProperties(0.9), embedder, clock);
+        semantic.complete(context("team-a", request(0.0, "What is Redis?")), provider);
+
+        ChatContext otherClient = context("team-b", request(0.0, "what's redis"));
+        semantic.complete(otherClient, provider);
+        ChatContext otherSystemPrompt = context("team-a", withSystem("Answer in French.", "what's redis"));
+        semantic.complete(otherSystemPrompt, provider);
+
+        assertThat(otherClient.responseHeaders().asMap()).containsEntry("X-Cache", "miss");
+        assertThat(otherSystemPrompt.responseHeaders().asMap()).containsEntry("X-Cache", "miss");
+        assertThat(provider.calls).isEqualTo(3);
+    }
+
+    @Test
+    void multiTurnRequestsUseOnlyTheExactLayer() {
+        FakeEmbedder embedder = new FakeEmbedder();
+        CacheInterceptor semantic = new CacheInterceptor(store, semanticProperties(0.9), embedder, clock);
+        ChatCompletionRequest multiTurn = new ChatCompletionRequest("m", List.of(
+                new ChatMessage("user", "Hi"), new ChatMessage("assistant", "Hello!"),
+                new ChatMessage("user", "What is Redis?")), null, null, 0.0, null, null, null);
+
+        semantic.complete(context("team-a", multiTurn), provider);
+        ChatContext again = context("team-a", multiTurn);
+        semantic.complete(again, provider);
+
+        assertThat(embedder.calls).isZero();
+        assertThat(again.responseHeaders().asMap()).containsEntry("X-Cache", "exact");
+    }
+
+    @Test
+    void embeddingFailureFallsBackToTheExactLayer() {
+        FakeEmbedder embedder = new FakeEmbedder();
+        embedder.failing = true;
+        CacheInterceptor semantic = new CacheInterceptor(store, semanticProperties(0.9), embedder, clock);
+
+        ChatContext first = context("team-a", CACHEABLE);
+        semantic.complete(first, provider);
+        ChatContext second = context("team-a", CACHEABLE);
+        semantic.complete(second, provider);
+
+        assertThat(first.responseHeaders().asMap()).containsEntry("X-Cache", "miss");
+        assertThat(second.responseHeaders().asMap()).containsEntry("X-Cache", "exact");
+    }
+
+    @Test
+    void semanticHitIsReplayedToStreamingClients() {
+        FakeEmbedder embedder = new FakeEmbedder().text("What is Redis?", 1.0).text("Explain Redis", 0.97);
+        CacheInterceptor semantic = new CacheInterceptor(store, semanticProperties(0.9), embedder, clock);
+        semantic.stream(context("team-a", request(0.0, "What is Redis?")), chunk -> { }, provider);
+
+        ChatContext second = context("team-a", request(0.0, "Explain Redis"));
+        List<ChatCompletionChunk> replayed = new ArrayList<>();
+        semantic.stream(second, replayed::add, provider);
+
+        assertThat(second.responseHeaders().asMap()).containsEntry("X-Cache", "semantic");
+        assertThat(text(replayed)).isEqualTo("Redis is an in-memory data store.");
+        assertThat(provider.calls).isEqualTo(1);
     }
 
     // ---- helpers ----
+
+    private static CacheProperties semanticProperties(double threshold) {
+        return new CacheProperties(true, CacheProperties.Store.IN_MEMORY, Duration.ofMinutes(10), 0.3, true, threshold);
+    }
+
+    private static ChatCompletionRequest withSystem(String system, String userText) {
+        return new ChatCompletionRequest("m", List.of(new ChatMessage("system", system),
+                new ChatMessage("user", userText)), null, null, 0.0, null, null, null);
+    }
 
     private static ChatCompletionRequest request(Double temperature, String userText) {
         return new ChatCompletionRequest("m", List.of(new ChatMessage("user", userText)), null, null,

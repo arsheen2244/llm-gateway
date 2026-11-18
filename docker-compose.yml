@@ -59,7 +59,8 @@ services:
   gateway-3: *gateway
 
   redis:
-    image: redis:7.4-alpine
+    # Redis 8: vector search is built in, for the semantic cache (design note 35).
+    image: redis:8.2
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 2s

@@ -4,6 +4,8 @@ package dev.llmgateway.gateway.cache;
 public final class CacheHeaders {
 
     public static final String X_CACHE = "X-Cache";
+    /** On semantic hits: the cosine similarity of the matched prompt (0 to 1, 4 decimals). */
+    public static final String X_CACHE_SIMILARITY = "X-Cache-Similarity";
 
     /** Served from the exact-match layer. */
     public static final String EXACT = "exact";
