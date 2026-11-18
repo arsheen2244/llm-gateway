@@ -13,6 +13,12 @@ same model, no system prompt: the only case the semantic layer handles (design n
 
 ## Review before any results
 
+**Status (2026-11-18): reviewed by Claude, at the owner's request.** The owner delegated the
+review instead of doing it. Claude re-read all 200 pairs, reworded three ambiguous paraphrases
+(`hit-045`, `hit-063`, `hit-072`) so both prompts ask for the same answer, and flipped no labels.
+The labels are therefore Claude's own judgement, checked once, not an independent human review;
+results built on them say so.
+
 The labels are a **draft written by Claude**. Before any result is reported, the owner reads
 every pair and:
 

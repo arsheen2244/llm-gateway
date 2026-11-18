@@ -169,13 +169,14 @@ def write_pairs_csv(pairs: list[Pair], similarity: dict[str, float], path: Path)
             writer.writerow([p.id, p.expected, p.category, f"{similarity[p.id]:.4f}", p.a, p.b])
 
 
-def markdown(pairs: list[Pair], similarity: dict[str, float], rows: list[Row], model: str) -> str:
+def markdown(pairs: list[Pair], similarity: dict[str, float], rows: list[Row], model: str,
+             reviewer: str = "the owner") -> str:
     n_hit = sum(p.expected == "hit" for p in pairs)
     lines = [
         "# Semantic cache threshold sweep",
         "",
         f"{len(pairs)} reviewed pairs ({n_hit} should hit, {len(pairs) - n_hit} must not), "
-        f"embedded with `{model}`, cosine similarity of each pair.",
+        f"embedded with `{model}`, cosine similarity of each pair. Labels reviewed by {reviewer}.",
         "",
         "| Threshold | Hit rate | False-hit rate | Hits | False hits |",
         "|---|---|---|---|---|",
@@ -244,7 +245,8 @@ def main(argv: list[str]) -> int:
     args.out.mkdir(parents=True, exist_ok=True)
     write_csv(rows, args.out / "threshold-sweep.csv")
     write_pairs_csv(pairs, similarity, args.out / "pair-similarities.csv")
-    report = markdown(pairs, similarity, rows, args.model)
+    reviewer = json.loads(args.pairs.read_text(encoding="utf-8")).get("reviewed_by", "the owner")
+    report = markdown(pairs, similarity, rows, args.model, reviewer)
     (args.out / "threshold-sweep.md").write_text(report, encoding="utf-8")
     plot(rows, args.out / "threshold-sweep.png")
     print(report)
