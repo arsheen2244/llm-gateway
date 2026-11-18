@@ -3,12 +3,14 @@ package dev.llmgateway.gateway.ratelimit;
 import dev.llmgateway.gateway.api.dto.ChatCompletionResponse;
 import dev.llmgateway.gateway.api.dto.Usage;
 import dev.llmgateway.gateway.auth.ClientIdentity;
+import dev.llmgateway.gateway.cache.CacheHeaders;
 import dev.llmgateway.gateway.pipeline.ChatContext;
 import dev.llmgateway.gateway.pipeline.ChatInterceptor;
 import dev.llmgateway.gateway.provider.ChunkSink;
 import dev.llmgateway.gateway.provider.ProviderException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.core.Ordered;
 
 /**
  * Applies each client's request and token limits around the provider call
@@ -29,7 +31,10 @@ import org.slf4j.LoggerFactory;
  * </ol>
  * A failed reconcile is logged and never fails the client's request.
  */
-public class RateLimitInterceptor implements ChatInterceptor {
+public class RateLimitInterceptor implements ChatInterceptor, Ordered {
+
+    /** First in the chain: a refused request should cost nothing else. */
+    public static final int ORDER = 100;
 
     private static final Logger log = LoggerFactory.getLogger(RateLimitInterceptor.class);
 
@@ -49,7 +54,9 @@ public class RateLimitInterceptor implements ChatInterceptor {
         try {
             ChatCompletionResponse response = chain.complete(context);
             Usage usage = response.usage();
-            if (usage != null) {
+            if (servedFromCache(context)) {
+                settle(reservation, 0); // no provider tokens were spent (design note 32)
+            } else if (usage != null) {
                 settle(reservation, usage.totalTokens());
             }
             return response;
@@ -70,13 +77,25 @@ public class RateLimitInterceptor implements ChatInterceptor {
                 }
                 sink.accept(chunk);
             });
-            if (usage[0] != null) {
+            if (servedFromCache(context)) {
+                settle(reservation, 0);
+            } else if (usage[0] != null) {
                 settle(reservation, usage[0].totalTokens());
             }
         } catch (ProviderException e) {
             refundIfNothingWasProduced(reservation, e);
             throw e;
         }
+    }
+
+    @Override
+    public int getOrder() {
+        return ORDER;
+    }
+
+    /** A cache hit still counts as a request, but its reserved tokens are refunded. */
+    private static boolean servedFromCache(ChatContext context) {
+        return CacheHeaders.isHit(context.responseHeaders().asMap().get(CacheHeaders.X_CACHE));
     }
 
     private Reservation admit(ChatContext context) {

@@ -6,7 +6,6 @@ import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
-import org.springframework.core.annotation.Order;
 import org.springframework.data.redis.core.StringRedisTemplate;
 
 /**
@@ -38,9 +37,8 @@ public class RateLimitConfig {
         return new TokenEstimator(properties.defaultCompletionTokens());
     }
 
-    /** First in the chain: a refused request should cost nothing else. */
+    /** First in the chain (its order is RateLimitInterceptor.ORDER). */
     @Bean
-    @Order(100)
     RateLimitInterceptor rateLimitInterceptor(RateLimiter limiter, TokenEstimator estimator,
                                               RateLimitProperties properties) {
         return new RateLimitInterceptor(limiter, estimator, properties);

@@ -87,6 +87,13 @@ gateway:
       sample-window: 200
       max-ratio: 0.05       # hedges for at most 5% of requests
 
+  # Response cache (design notes 32-36).
+  cache:
+    enabled: true
+    store: in-memory          # 'redis' to share one cache across instances
+    ttl: 1h
+    max-temperature: 0.3      # only requests that explicitly set temperature <= this
+
   # Per-client limits come from gateway.auth.clients (design notes 18-19).
   rate-limit:
     enabled: true

@@ -250,7 +250,8 @@ class ResilientExecutorTest {
     }
 
     private static ChatContext context(List<ProviderTarget> targets) {
-        return new ChatContext(null, REQUEST, targets.get(0).provider(), new ResponseHeaders(), targets);
+        return new ChatContext(null, REQUEST, targets.get(0).provider(), new ResponseHeaders(), targets,
+                dev.llmgateway.gateway.pipeline.RequestOptions.DEFAULTS);
     }
 
     private interface Step {

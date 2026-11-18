@@ -35,18 +35,19 @@ public class ChatPipeline {
     }
 
     public ChatCompletionResponse complete(ChatCompletionRequest request, ClientIdentity client,
-                                           ResponseHeaders headers) {
-        ChatContext context = contextFor(request, client, headers);
+                                           ResponseHeaders headers, RequestOptions options) {
+        ChatContext context = contextFor(request, client, headers, options);
         return chainFor(context).complete(context);
     }
 
     public void stream(ChatCompletionRequest request, ClientIdentity client, ResponseHeaders headers,
-                       ChunkSink sink) {
-        ChatContext context = contextFor(request, client, headers);
+                       RequestOptions options, ChunkSink sink) {
+        ChatContext context = contextFor(request, client, headers, options);
         chainFor(context).stream(context, sink);
     }
 
-    private ChatContext contextFor(ChatCompletionRequest request, ClientIdentity client, ResponseHeaders headers) {
+    private ChatContext contextFor(ChatCompletionRequest request, ClientIdentity client, ResponseHeaders headers,
+                                   RequestOptions options) {
         // Recorded in the MDC so every later log line, including the access log, shows them.
         MDC.put(LogFields.MODEL, request.model());
         MDC.put(LogFields.STREAM, String.valueOf(request.streaming()));
@@ -58,7 +59,7 @@ public class ChatPipeline {
             throw ProviderException.of(provider.name(), ProviderException.Reason.NOT_CONFIGURED,
                     "No API key configured for provider '" + provider.name() + "'", null);
         }
-        return new ChatContext(client, request, provider, headers, targets);
+        return new ChatContext(client, request, provider, headers, targets, options);
     }
 
     /** Interceptors (rate limiting first), then the resilient executor (design note 27). */

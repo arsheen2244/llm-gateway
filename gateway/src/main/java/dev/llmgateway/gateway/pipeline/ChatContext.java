@@ -15,7 +15,9 @@ import dev.llmgateway.gateway.routing.ProviderTarget;
  * @param provider        the first provider in the route (for logs and simple callers)
  * @param responseHeaders headers interceptors want sent back to the client
  * @param targets         every provider to try, in failover order (design note 25)
+ * @param options         choices the client made through headers (e.g. cache bypass)
  */
 public record ChatContext(ClientIdentity client, ChatCompletionRequest request, ProviderConfig provider,
-                          ResponseHeaders responseHeaders, List<ProviderTarget> targets) {
+                          ResponseHeaders responseHeaders, List<ProviderTarget> targets,
+                          RequestOptions options) {
 }

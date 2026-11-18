@@ -1046,8 +1046,9 @@ Each scenario ran on its own GitHub-hosted runner.
 ## 32. Semantic cache: what is cacheable, and what counts as "the same request"
 
 **Owner's choices for week 4:** embeddings from a local embedding service shared by all
-instances (note 33), cached answers and vectors in Redis with vector search (note 34), and
-the eligibility rule below.
+instances (note 34), cached answers and vectors in Redis with vector search (note 35), and
+the eligibility rule below. How answers are served and stored is note 33; the similarity
+threshold is chosen in note 36.
 
 **Eligibility:**
 - **Exact layer:** the request explicitly sets `temperature` ≤ 0.3. An unset temperature
@@ -1078,3 +1079,38 @@ part of any key, because the same answer can be replayed either way.
   semantic layer's job, and that layer is measured.
 - *Caching every request with an opt-out header:* highest hit rate, but it silently returns
   identical text to callers who asked for variety (high temperature).
+
+## 33. Serving and storing cached answers (exact layer)
+
+**Where:** `CacheInterceptor`, in the interceptor chain right **after rate limiting** (order 200,
+behind the limiter's 100, both declared through Spring's `Ordered`). A cache hit still counts
+as a request against the client's limit, but the limiter sees `X-Cache: exact|semantic` and
+**refunds the reserved tokens**, since no provider tokens were spent. The response still carries
+the original call's `usage`, so clients see the normal OpenAI shape.
+
+**`X-Cache` header:**
+- `exact` (or `semantic`): answered from the cache; no provider was called.
+- `miss`: the cache was checked and had nothing.
+- `bypass`: the cache was not used, because the client sent `Cache-Control: no-cache`/`no-store`
+  or the request isn't eligible (note 32). This is one value beyond the brief's three: it
+  separates "checked, nothing there" from "not checked at all", which hit-rate numbers need.
+
+**What gets stored:** only complete answers: `finish_reason` `stop`, or `length` (cut at
+`max_tokens`, which is part of the scope, so it is reproducible). Failed calls and broken
+streams are never stored.
+
+**Streaming:**
+- *Miss:* the chunks pass through to the client untouched while a collector rebuilds the full
+  text, and it is stored only if the stream completes.
+- *Hit:* the cached answer is replayed the way a provider streams: a role chunk, the text in
+  word-sized pieces, a finish chunk, then the usage chunk (forwarded only if the client asked
+  for it, note 12).
+- An answer cached from a stream serves a normal request, and vice versa: the key ignores
+  `stream` (note 32).
+
+**Stores (`CacheStore`):** `in-memory` (the default; single instance and tests; lazy expiry and a
+10,000-entry cap) and `redis` (each answer is one JSON string under `cache:exact:<key>` with a
+Redis TTL, shared by every instance). Docker Compose uses Redis. The cache must never fail a
+request: store errors are logged and treated as misses.
+*Rejected:* an LRU eviction policy for the in-memory store; with several instances the Redis
+store is the right tool.

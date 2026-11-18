@@ -23,6 +23,8 @@ x-gateway: &gateway
     GATEWAY_RATE_LIMIT_BACKEND: ${RATE_LIMIT_BACKEND:-redis}
     # If Redis becomes unreachable, each instance enforces 1/3 of every limit (design note 22).
     GATEWAY_RATE_LIMIT_INSTANCES: "3"
+    # One cache shared by all instances (design note 33).
+    GATEWAY_CACHE_STORE: redis
     # Three JVMs on one machine: keep each heap modest.
     JAVA_TOOL_OPTIONS: -Xmx384m
     OPENAI_API_KEY: ${OPENAI_API_KEY:-}
