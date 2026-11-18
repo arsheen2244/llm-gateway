@@ -1114,3 +1114,36 @@ Redis TTL, shared by every instance). Docker Compose uses Redis. The cache must 
 request: store errors are logged and treated as misses.
 *Rejected:* an LRU eviction policy for the in-memory store; with several instances the Redis
 store is the right tool.
+
+## 34. Embeddings: a local service shared by all instances
+
+**Owner's choice:** a separate **embedding service container** rather than a model loaded
+inside each gateway JVM. Hugging Face **text-embeddings-inference (TEI)** on CPU, running
+**`BAAI/bge-small-en-v1.5`**: 384 dimensions, ~130 MB, English, near the top of its size class
+on retrieval and similarity benchmarks. It runs locally, so tests and benchmarks cost nothing.
+
+| Option | For | Against |
+|---|---|---|
+| **Service container (chosen)** | One model in memory for all 3 instances; the gateway stays a small JVM; the eval script calls exactly the same service, so measured thresholds apply to production | One more container and network hop |
+| Model inside the JVM (ONNX Runtime / DJL) | No hop | ~130 MB model + native runtime in every instance; Java inference libraries add weight; the Python eval would need a second, possibly different, implementation |
+| Hosted embedding API | No ops | Costs money per call, sends prompts to a third party, and tests would need a key |
+
+**Client (`TeiEmbedder`):** `POST /embed` with `normalize: true` (unit-length vectors, so
+cosine similarity is a dot product) and **`truncate: false`**. The model reads at most 512
+tokens; silently cutting longer prompts would make two prompts that differ only near the end
+look identical, which would serve a wrong answer. Too long is an error, so the semantic layer is
+skipped for that request. Every answer is checked to be exactly 384 numbers, the length the
+vector index (note 35) is built for.
+
+**Never slow down or fail the request:** a **500 ms** connect/read timeout, no automatic retries,
+and its **own small connection pool** (50), separate from the providers' pool (note 16), so a
+stuck embedding service can't use up provider connections. Any failure is an
+`EmbeddingException`, which the cache treats as a semantic miss. In Compose the gateways start
+without waiting for the model to load, for the same reason.
+
+**Checked in CI:** the Compose smoke test runs `scripts/check-embeddings.sh`, which waits for the
+model, checks the vector length and prints the similarity of a paraphrase pair and an unrelated
+pair (a sanity check, not a measurement; the threshold comes from the labelled evaluation).
+
+*Not done:* pinning the model to a specific Hugging Face revision; the image tag is pinned
+(`cpu-1.8.1`), the model files are not.

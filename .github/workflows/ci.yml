@@ -74,6 +74,10 @@ jobs:
       - name: Smoke test through the gateway
         run: bash scripts/smoke-test.sh http://localhost:8080
 
+      # The model downloads on first start, so allow a few minutes.
+      - name: Embedding service answers
+        run: bash scripts/check-embeddings.sh http://localhost:8082
+
       - name: Show logs on failure
         if: failure()
         run: docker compose logs

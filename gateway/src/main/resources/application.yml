@@ -93,6 +93,10 @@ gateway:
     store: in-memory          # 'redis' to share one cache across instances
     ttl: 1h
     max-temperature: 0.3      # only requests that explicitly set temperature <= this
+    embedding:                # local text-embeddings-inference service (design note 34)
+      url: ${GATEWAY_CACHE_EMBEDDING_URL:http://localhost:8082}
+      timeout: 500ms
+      dimensions: 384         # BAAI/bge-small-en-v1.5
 
   # Per-client limits come from gateway.auth.clients (design notes 18-19).
   rate-limit:

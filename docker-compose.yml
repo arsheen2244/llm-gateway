@@ -1,6 +1,8 @@
-# Three gateway instances behind nginx, sharing one Redis for rate limits, plus the mock.
+# Three gateway instances behind nginx, sharing one Redis (rate limits, cache), plus the mock
+# and a local embedding service for the semantic cache.
 #   docker compose up --build
 # Entry point (nginx): http://localhost:8080      Mock (direct): http://localhost:8081
+# Embeddings (direct): http://localhost:8082
 #
 # Rate-limit backend: RATE_LIMIT_BACKEND=redis (default, limits shared by all instances)
 # or RATE_LIMIT_BACKEND=in-memory (each instance counts on its own; the week-2 baseline).
@@ -25,6 +27,8 @@ x-gateway: &gateway
     GATEWAY_RATE_LIMIT_INSTANCES: "3"
     # One cache shared by all instances (design note 33).
     GATEWAY_CACHE_STORE: redis
+    # Local embedding model for the semantic cache layer (design note 34).
+    GATEWAY_CACHE_EMBEDDING_URL: http://embeddings:80
     # Three JVMs on one machine: keep each heap modest.
     JAVA_TOOL_OPTIONS: -Xmx384m
     OPENAI_API_KEY: ${OPENAI_API_KEY:-}
@@ -33,6 +37,9 @@ x-gateway: &gateway
     redis:
       condition: service_healthy
     mock-provider:
+      condition: service_started
+    # Not "healthy": while the model loads, the cache just skips its semantic layer.
+    embeddings:
       condition: service_started
 
 services:
@@ -59,6 +66,17 @@ services:
       timeout: 2s
       retries: 15
 
+  # Hugging Face text-embeddings-inference on CPU with a small English model (384 dimensions).
+  # Runs locally, so tests and benchmarks cost nothing. The model (~130 MB) is downloaded on
+  # first start and kept in a named volume.
+  embeddings:
+    image: ghcr.io/huggingface/text-embeddings-inference:cpu-1.8.1
+    command: ["--model-id", "BAAI/bge-small-en-v1.5"]
+    ports:
+      - "8082:80"
+    volumes:
+      - embedding-models:/data
+
   mock-provider:
     build:
       context: .
@@ -74,3 +92,6 @@ services:
       MOCK_CHUNK_DELAY_MS: ${MOCK_CHUNK_DELAY_MS:-10}
       MOCK_ERROR_RATE: ${MOCK_ERROR_RATE:-0}
       MOCK_MID_STREAM_FAILURE_RATE: ${MOCK_MID_STREAM_FAILURE_RATE:-0}
+
+volumes:
+  embedding-models:
