@@ -1,0 +1,1606 @@
+{
+  "description": "Labelled prompt pairs for choosing the semantic cache's similarity threshold (design note 36). expected 'hit': b means the same as a and the same answer is correct, so b may be served a's cached answer. expected 'no_hit': b looks like a but needs a different answer, so serving a's answer would be wrong. Each pair is a single-turn user message at temperature 0, with the same client, model and no system prompt.",
+  "status": "DRAFT: labels written by Claude. The owner reviews every pair, fixes 'expected' where wrong, and sets 'reviewed': true. The sweep script refuses to report results while any pair is unreviewed.",
+  "pairs": [
+    {
+      "id": "hit-001",
+      "expected": "hit",
+      "category": "programming",
+      "a": "How do I reverse a list in Python?",
+      "b": "What's the way to reverse a Python list?",
+      "reviewed": false
+    },
+    {
+      "id": "hit-002",
+      "expected": "hit",
+      "category": "programming",
+      "a": "How can I read a file line by line in Java?",
+      "b": "What's the best way to read a text file one line at a time in Java?",
+      "reviewed": false
+    },
+    {
+      "id": "hit-003",
+      "expected": "hit",
+      "category": "programming",
+      "a": "What is the difference between a process and a thread?",
+      "b": "Explain how processes differ from threads.",
+      "reviewed": false
+    },
+    {
+      "id": "hit-004",
+      "expected": "hit",
+      "category": "programming",
+      "a": "How do I remove duplicates from a JavaScript array?",
+      "b": "What's a way to deduplicate an array in JavaScript?",
+      "reviewed": false
+    },
+    {
+      "id": "hit-005",
+      "expected": "hit",
+      "category": "programming",
+      "a": "How do I check if a key exists in a Python dictionary?",
+      "b": "In Python, how can I tell whether a dict contains a given key?",
+      "reviewed": false
+    },
+    {
+      "id": "hit-006",
+      "expected": "hit",
+      "category": "programming",
+      "a": "What does the volatile keyword do in Java?",
+      "b": "Explain the purpose of Java's volatile keyword.",
+      "reviewed": false
+    },
+    {
+      "id": "hit-007",
+      "expected": "hit",
+      "category": "programming",
+      "a": "How do I undo the last git commit?",
+      "b": "How can I take back my most recent git commit?",
+      "reviewed": false
+    },
+    {
+      "id": "hit-008",
+      "expected": "hit",
+      "category": "programming",
+      "a": "What is a SQL JOIN?",
+      "b": "Explain what a join does in SQL.",
+      "reviewed": false
+    },
+    {
+      "id": "hit-009",
+      "expected": "hit",
+      "category": "programming",
+      "a": "How do I convert a string to an integer in Java?",
+      "b": "What's the way to parse a String into an int in Java?",
+      "reviewed": false
+    },
+    {
+      "id": "hit-010",
+      "expected": "hit",
+      "category": "programming",
+      "a": "What is dependency injection?",
+      "b": "Can you explain the concept of dependency injection?",
+      "reviewed": false
+    },
+    {
+      "id": "hit-011",
+      "expected": "hit",
+      "category": "programming",
+      "a": "How do I sort a list of dictionaries by a key in Python?",
+      "b": "In Python, how can I sort a list of dicts by one of their keys?",
+      "reviewed": false
+    },
+    {
+      "id": "hit-012",
+      "expected": "hit",
+      "category": "programming",
+      "a": "What is the time complexity of binary search?",
+      "b": "What's the big-O running time of binary search?",
+      "reviewed": false
+    },
+    {
+      "id": "hit-013",
+      "expected": "hit",
+      "category": "programming",
+      "a": "How do I create a virtual environment in Python?",
+      "b": "What's the command to set up a Python venv?",
+      "reviewed": false
+    },
+    {
+      "id": "hit-014",
+      "expected": "hit",
+      "category": "programming",
+      "a": "What is a race condition?",
+      "b": "Explain what a race condition is in programming.",
+      "reviewed": false
+    },
+    {
+      "id": "hit-015",
+      "expected": "hit",
+      "category": "programming",
+      "a": "How do I center a div in CSS?",
+      "b": "What's the way to horizontally and vertically center a div with CSS?",
+      "reviewed": false
+    },
+    {
+      "id": "hit-016",
+      "expected": "hit",
+      "category": "programming",
+      "a": "What is the difference between == and equals() in Java?",
+      "b": "In Java, how does == differ from .equals()?",
+      "reviewed": false
+    },
+    {
+      "id": "hit-017",
+      "expected": "hit",
+      "category": "programming",
+      "a": "How do I get the current date in JavaScript?",
+      "b": "What's the JavaScript code to get today's date?",
+      "reviewed": false
+    },
+    {
+      "id": "hit-018",
+      "expected": "hit",
+      "category": "programming",
+      "a": "What is REST?",
+      "b": "Explain what a RESTful API is.",
+      "reviewed": false
+    },
+    {
+      "id": "hit-019",
+      "expected": "hit",
+      "category": "programming",
+      "a": "How do I list all running Docker containers?",
+      "b": "Which command shows the Docker containers that are currently running?",
+      "reviewed": false
+    },
+    {
+      "id": "hit-020",
+      "expected": "hit",
+      "category": "programming",
+      "a": "What does HTTP status code 404 mean?",
+      "b": "What is the meaning of a 404 response code in HTTP?",
+      "reviewed": false
+    },
+    {
+      "id": "hit-021",
+      "expected": "hit",
+      "category": "general-knowledge",
+      "a": "What is the capital of Australia?",
+      "b": "Which city is Australia's capital?",
+      "reviewed": false
+    },
+    {
+      "id": "hit-022",
+      "expected": "hit",
+      "category": "general-knowledge",
+      "a": "Who wrote Pride and Prejudice?",
+      "b": "Who is the author of the novel Pride and Prejudice?",
+      "reviewed": false
+    },
+    {
+      "id": "hit-023",
+      "expected": "hit",
+      "category": "general-knowledge",
+      "a": "How far is the Moon from Earth?",
+      "b": "What's the distance between the Earth and the Moon?",
+      "reviewed": false
+    },
+    {
+      "id": "hit-024",
+      "expected": "hit",
+      "category": "general-knowledge",
+      "a": "Why is the sky blue?",
+      "b": "What makes the sky look blue?",
+      "reviewed": false
+    },
+    {
+      "id": "hit-025",
+      "expected": "hit",
+      "category": "general-knowledge",
+      "a": "What causes the seasons on Earth?",
+      "b": "Why does Earth have seasons?",
+      "reviewed": false
+    },
+    {
+      "id": "hit-026",
+      "expected": "hit",
+      "category": "general-knowledge",
+      "a": "How many bones are in the adult human body?",
+      "b": "How many bones does a grown human have?",
+      "reviewed": false
+    },
+    {
+      "id": "hit-027",
+      "expected": "hit",
+      "category": "general-knowledge",
+      "a": "What is photosynthesis?",
+      "b": "Explain how photosynthesis works.",
+      "reviewed": false
+    },
+    {
+      "id": "hit-028",
+      "expected": "hit",
+      "category": "general-knowledge",
+      "a": "When did World War II end?",
+      "b": "In what year did the Second World War end?",
+      "reviewed": false
+    },
+    {
+      "id": "hit-029",
+      "expected": "hit",
+      "category": "general-knowledge",
+      "a": "What is the boiling point of water at sea level?",
+      "b": "At what temperature does water boil at sea level?",
+      "reviewed": false
+    },
+    {
+      "id": "hit-030",
+      "expected": "hit",
+      "category": "general-knowledge",
+      "a": "Who painted the Mona Lisa?",
+      "b": "Which artist painted the Mona Lisa?",
+      "reviewed": false
+    },
+    {
+      "id": "hit-031",
+      "expected": "hit",
+      "category": "general-knowledge",
+      "a": "What is the largest planet in our solar system?",
+      "b": "Which planet in the solar system is the biggest?",
+      "reviewed": false
+    },
+    {
+      "id": "hit-032",
+      "expected": "hit",
+      "category": "general-knowledge",
+      "a": "What language is spoken in Brazil?",
+      "b": "What is the official language of Brazil?",
+      "reviewed": false
+    },
+    {
+      "id": "hit-033",
+      "expected": "hit",
+      "category": "general-knowledge",
+      "a": "How does a vaccine work?",
+      "b": "Explain how vaccines protect the body.",
+      "reviewed": false
+    },
+    {
+      "id": "hit-034",
+      "expected": "hit",
+      "category": "general-knowledge",
+      "a": "What is inflation?",
+      "b": "Can you explain what economic inflation is?",
+      "reviewed": false
+    },
+    {
+      "id": "hit-035",
+      "expected": "hit",
+      "category": "general-knowledge",
+      "a": "What is the speed of light?",
+      "b": "How fast does light travel?",
+      "reviewed": false
+    },
+    {
+      "id": "hit-036",
+      "expected": "hit",
+      "category": "general-knowledge",
+      "a": "What is the tallest mountain in the world?",
+      "b": "Which mountain is the highest on Earth?",
+      "reviewed": false
+    },
+    {
+      "id": "hit-037",
+      "expected": "hit",
+      "category": "general-knowledge",
+      "a": "What is DNA?",
+      "b": "Explain what DNA is.",
+      "reviewed": false
+    },
+    {
+      "id": "hit-038",
+      "expected": "hit",
+      "category": "general-knowledge",
+      "a": "How do airplanes stay in the air?",
+      "b": "What keeps an airplane up while it flies?",
+      "reviewed": false
+    },
+    {
+      "id": "hit-039",
+      "expected": "hit",
+      "category": "general-knowledge",
+      "a": "What is the population of Japan?",
+      "b": "How many people live in Japan?",
+      "reviewed": false
+    },
+    {
+      "id": "hit-040",
+      "expected": "hit",
+      "category": "general-knowledge",
+      "a": "What does GDP stand for?",
+      "b": "What is GDP short for?",
+      "reviewed": false
+    },
+    {
+      "id": "hit-041",
+      "expected": "hit",
+      "category": "how-to",
+      "a": "How do I boil an egg?",
+      "b": "What's the way to make a boiled egg?",
+      "reviewed": false
+    },
+    {
+      "id": "hit-042",
+      "expected": "hit",
+      "category": "how-to",
+      "a": "How long should I cook pasta?",
+      "b": "How many minutes does pasta usually need to cook?",
+      "reviewed": false
+    },
+    {
+      "id": "hit-043",
+      "expected": "hit",
+      "category": "how-to",
+      "a": "How do I remove a coffee stain from a shirt?",
+      "b": "What's the best way to get coffee stains out of a shirt?",
+      "reviewed": false
+    },
+    {
+      "id": "hit-044",
+      "expected": "hit",
+      "category": "how-to",
+      "a": "How can I improve my sleep?",
+      "b": "What are some tips for sleeping better?",
+      "reviewed": false
+    },
+    {
+      "id": "hit-045",
+      "expected": "hit",
+      "category": "how-to",
+      "a": "How do I write a cover letter?",
+      "b": "What should I include when writing a cover letter?",
+      "reviewed": false
+    },
+    {
+      "id": "hit-046",
+      "expected": "hit",
+      "category": "how-to",
+      "a": "How do I change a flat tire?",
+      "b": "What are the steps to change a flat tyre?",
+      "reviewed": false
+    },
+    {
+      "id": "hit-047",
+      "expected": "hit",
+      "category": "how-to",
+      "a": "How do I make a cup of green tea?",
+      "b": "What's the right way to brew green tea?",
+      "reviewed": false
+    },
+    {
+      "id": "hit-048",
+      "expected": "hit",
+      "category": "how-to",
+      "a": "How can I save money on groceries?",
+      "b": "What are ways to spend less on groceries?",
+      "reviewed": false
+    },
+    {
+      "id": "hit-049",
+      "expected": "hit",
+      "category": "how-to",
+      "a": "How do I take a screenshot on Windows?",
+      "b": "What's the way to capture a screenshot on a Windows PC?",
+      "reviewed": false
+    },
+    {
+      "id": "hit-050",
+      "expected": "hit",
+      "category": "how-to",
+      "a": "How do I clean a cast iron pan?",
+      "b": "What's the proper way to clean a cast-iron skillet?",
+      "reviewed": false
+    },
+    {
+      "id": "hit-051",
+      "expected": "hit",
+      "category": "how-to",
+      "a": "How do I start running as a beginner?",
+      "b": "Any tips for a beginner who wants to start running?",
+      "reviewed": false
+    },
+    {
+      "id": "hit-052",
+      "expected": "hit",
+      "category": "how-to",
+      "a": "How do I reset my router?",
+      "b": "What are the steps to reset a home router?",
+      "reviewed": false
+    },
+    {
+      "id": "hit-053",
+      "expected": "hit",
+      "category": "how-to",
+      "a": "How do I memorize things faster?",
+      "b": "What are techniques to memorize information more quickly?",
+      "reviewed": false
+    },
+    {
+      "id": "hit-054",
+      "expected": "hit",
+      "category": "how-to",
+      "a": "How do I keep basil plants alive?",
+      "b": "How can I stop my basil plant from dying?",
+      "reviewed": false
+    },
+    {
+      "id": "hit-055",
+      "expected": "hit",
+      "category": "how-to",
+      "a": "How do I prepare for a job interview?",
+      "b": "What should I do to get ready for a job interview?",
+      "reviewed": false
+    },
+    {
+      "id": "hit-056",
+      "expected": "hit",
+      "category": "how-to",
+      "a": "How do I make my phone battery last longer?",
+      "b": "How can I extend my phone's battery life?",
+      "reviewed": false
+    },
+    {
+      "id": "hit-057",
+      "expected": "hit",
+      "category": "how-to",
+      "a": "How do I unclog a sink drain?",
+      "b": "What's the way to fix a clogged sink?",
+      "reviewed": false
+    },
+    {
+      "id": "hit-058",
+      "expected": "hit",
+      "category": "how-to",
+      "a": "How do I write a good resume?",
+      "b": "What makes a strong résumé and how do I write one?",
+      "reviewed": false
+    },
+    {
+      "id": "hit-059",
+      "expected": "hit",
+      "category": "how-to",
+      "a": "How do I learn to touch type?",
+      "b": "What's the best way to learn touch typing?",
+      "reviewed": false
+    },
+    {
+      "id": "hit-060",
+      "expected": "hit",
+      "category": "how-to",
+      "a": "How do I get rid of fruit flies?",
+      "b": "How can I eliminate fruit flies in my kitchen?",
+      "reviewed": false
+    },
+    {
+      "id": "hit-061",
+      "expected": "hit",
+      "category": "definitions",
+      "a": "Explain machine learning in simple terms.",
+      "b": "What is machine learning, explained simply?",
+      "reviewed": false
+    },
+    {
+      "id": "hit-062",
+      "expected": "hit",
+      "category": "definitions",
+      "a": "What is a black hole?",
+      "b": "Explain what black holes are.",
+      "reviewed": false
+    },
+    {
+      "id": "hit-063",
+      "expected": "hit",
+      "category": "definitions",
+      "a": "What is blockchain?",
+      "b": "Can you explain how blockchain works?",
+      "reviewed": false
+    },
+    {
+      "id": "hit-064",
+      "expected": "hit",
+      "category": "definitions",
+      "a": "What is the difference between weather and climate?",
+      "b": "How is climate different from weather?",
+      "reviewed": false
+    },
+    {
+      "id": "hit-065",
+      "expected": "hit",
+      "category": "definitions",
+      "a": "What is a mortgage?",
+      "b": "Explain what a home mortgage is.",
+      "reviewed": false
+    },
+    {
+      "id": "hit-066",
+      "expected": "hit",
+      "category": "definitions",
+      "a": "What is compound interest?",
+      "b": "How does compound interest work?",
+      "reviewed": false
+    },
+    {
+      "id": "hit-067",
+      "expected": "hit",
+      "category": "definitions",
+      "a": "What is the greenhouse effect?",
+      "b": "Explain the greenhouse effect.",
+      "reviewed": false
+    },
+    {
+      "id": "hit-068",
+      "expected": "hit",
+      "category": "definitions",
+      "a": "What is an API?",
+      "b": "What does API mean in software?",
+      "reviewed": false
+    },
+    {
+      "id": "hit-069",
+      "expected": "hit",
+      "category": "definitions",
+      "a": "What is the difference between a virus and bacteria?",
+      "b": "How do viruses differ from bacteria?",
+      "reviewed": false
+    },
+    {
+      "id": "hit-070",
+      "expected": "hit",
+      "category": "definitions",
+      "a": "What is quantum computing?",
+      "b": "Explain quantum computers in simple terms.",
+      "reviewed": false
+    },
+    {
+      "id": "hit-071",
+      "expected": "hit",
+      "category": "definitions",
+      "a": "What is a haiku?",
+      "b": "What is the haiku form of poetry?",
+      "reviewed": false
+    },
+    {
+      "id": "hit-072",
+      "expected": "hit",
+      "category": "definitions",
+      "a": "What is the stock market?",
+      "b": "Explain how the stock market works.",
+      "reviewed": false
+    },
+    {
+      "id": "hit-073",
+      "expected": "hit",
+      "category": "definitions",
+      "a": "What is a load balancer?",
+      "b": "What does a load balancer do?",
+      "reviewed": false
+    },
+    {
+      "id": "hit-074",
+      "expected": "hit",
+      "category": "definitions",
+      "a": "What is cognitive dissonance?",
+      "b": "Explain the concept of cognitive dissonance.",
+      "reviewed": false
+    },
+    {
+      "id": "hit-075",
+      "expected": "hit",
+      "category": "definitions",
+      "a": "What is an index in a database?",
+      "b": "What is a database index used for?",
+      "reviewed": false
+    },
+    {
+      "id": "hit-076",
+      "expected": "hit",
+      "category": "math",
+      "a": "What is 15% of 200?",
+      "b": "Calculate fifteen percent of 200.",
+      "reviewed": false
+    },
+    {
+      "id": "hit-077",
+      "expected": "hit",
+      "category": "math",
+      "a": "What is the square root of 144?",
+      "b": "What's sqrt(144)?",
+      "reviewed": false
+    },
+    {
+      "id": "hit-078",
+      "expected": "hit",
+      "category": "math",
+      "a": "What is the Pythagorean theorem?",
+      "b": "Explain Pythagoras' theorem.",
+      "reviewed": false
+    },
+    {
+      "id": "hit-079",
+      "expected": "hit",
+      "category": "math",
+      "a": "How do I calculate the area of a circle?",
+      "b": "What's the formula for the area of a circle?",
+      "reviewed": false
+    },
+    {
+      "id": "hit-080",
+      "expected": "hit",
+      "category": "math",
+      "a": "What is a prime number?",
+      "b": "Define a prime number.",
+      "reviewed": false
+    },
+    {
+      "id": "hit-081",
+      "expected": "hit",
+      "category": "math",
+      "a": "What is 7 times 8?",
+      "b": "What's 7 multiplied by 8?",
+      "reviewed": false
+    },
+    {
+      "id": "hit-082",
+      "expected": "hit",
+      "category": "math",
+      "a": "How do I convert a fraction to a percentage?",
+      "b": "What's the way to turn a fraction into a percent?",
+      "reviewed": false
+    },
+    {
+      "id": "hit-083",
+      "expected": "hit",
+      "category": "math",
+      "a": "What is the derivative of x squared?",
+      "b": "Differentiate x^2.",
+      "reviewed": false
+    },
+    {
+      "id": "hit-084",
+      "expected": "hit",
+      "category": "math",
+      "a": "What is the median of a set of numbers?",
+      "b": "How do you find the median of a list of numbers?",
+      "reviewed": false
+    },
+    {
+      "id": "hit-085",
+      "expected": "hit",
+      "category": "math",
+      "a": "What is 100 divided by 4?",
+      "b": "Compute 100 / 4.",
+      "reviewed": false
+    },
+    {
+      "id": "hit-086",
+      "expected": "hit",
+      "category": "wording-and-typos",
+      "a": "Can you summarize the plot of Hamlet?",
+      "b": "Give me a short summary of Hamlet's plot.",
+      "reviewed": false
+    },
+    {
+      "id": "hit-087",
+      "expected": "hit",
+      "category": "wording-and-typos",
+      "a": "please explain recursion",
+      "b": "Could you explain recursion to me, please?",
+      "reviewed": false
+    },
+    {
+      "id": "hit-088",
+      "expected": "hit",
+      "category": "wording-and-typos",
+      "a": "whats the capital of canada",
+      "b": "What is the capital city of Canada?",
+      "reviewed": false
+    },
+    {
+      "id": "hit-089",
+      "expected": "hit",
+      "category": "wording-and-typos",
+      "a": "Tell me a fun fact about octopuses.",
+      "b": "Share an interesting fact about octopuses.",
+      "reviewed": false
+    },
+    {
+      "id": "hit-090",
+      "expected": "hit",
+      "category": "wording-and-typos",
+      "a": "Translate 'thank you' into Spanish.",
+      "b": "How do you say 'thank you' in Spanish?",
+      "reviewed": false
+    },
+    {
+      "id": "hit-091",
+      "expected": "hit",
+      "category": "wording-and-typos",
+      "a": "Suggest a name for a black cat.",
+      "b": "Give me a name idea for a black cat.",
+      "reviewed": false
+    },
+    {
+      "id": "hit-092",
+      "expected": "hit",
+      "category": "wording-and-typos",
+      "a": "What are the benefits of drinking water?",
+      "b": "Why is drinking water good for you?",
+      "reviewed": false
+    },
+    {
+      "id": "hit-093",
+      "expected": "hit",
+      "category": "wording-and-typos",
+      "a": "hw do i learn pythn fast",
+      "b": "How can I learn Python quickly?",
+      "reviewed": false
+    },
+    {
+      "id": "hit-094",
+      "expected": "hit",
+      "category": "wording-and-typos",
+      "a": "Write a haiku about autumn.",
+      "b": "Compose a haiku about fall.",
+      "reviewed": false
+    },
+    {
+      "id": "hit-095",
+      "expected": "hit",
+      "category": "wording-and-typos",
+      "a": "What are the main causes of climate change?",
+      "b": "What is causing climate change?",
+      "reviewed": false
+    },
+    {
+      "id": "hit-096",
+      "expected": "hit",
+      "category": "wording-and-typos",
+      "a": "List three uses of baking soda.",
+      "b": "Give me 3 ways to use baking soda.",
+      "reviewed": false
+    },
+    {
+      "id": "hit-097",
+      "expected": "hit",
+      "category": "wording-and-typos",
+      "a": "Recommend a good book on habits.",
+      "b": "Can you suggest a good book about building habits?",
+      "reviewed": false
+    },
+    {
+      "id": "hit-098",
+      "expected": "hit",
+      "category": "wording-and-typos",
+      "a": "What are the symptoms of dehydration?",
+      "b": "How can I tell if I'm dehydrated?",
+      "reviewed": false
+    },
+    {
+      "id": "hit-099",
+      "expected": "hit",
+      "category": "wording-and-typos",
+      "a": "Explain the rules of chess briefly.",
+      "b": "Give a brief explanation of how chess is played.",
+      "reviewed": false
+    },
+    {
+      "id": "hit-100",
+      "expected": "hit",
+      "category": "wording-and-typos",
+      "a": "What is the meaning of 'carpe diem'?",
+      "b": "What does the phrase carpe diem mean?",
+      "reviewed": false
+    },
+    {
+      "id": "nohit-001",
+      "expected": "no_hit",
+      "category": "numbers",
+      "a": "What is 15% of 200?",
+      "b": "What is 15% of 300?",
+      "reviewed": false
+    },
+    {
+      "id": "nohit-002",
+      "expected": "no_hit",
+      "category": "numbers",
+      "a": "What is 7 times 8?",
+      "b": "What is 7 times 9?",
+      "reviewed": false
+    },
+    {
+      "id": "nohit-003",
+      "expected": "no_hit",
+      "category": "numbers",
+      "a": "Convert 100 Fahrenheit to Celsius.",
+      "b": "Convert 110 Fahrenheit to Celsius.",
+      "reviewed": false
+    },
+    {
+      "id": "nohit-004",
+      "expected": "no_hit",
+      "category": "numbers",
+      "a": "Write a function that returns the first 10 Fibonacci numbers.",
+      "b": "Write a function that returns the first 20 Fibonacci numbers.",
+      "reviewed": false
+    },
+    {
+      "id": "nohit-005",
+      "expected": "no_hit",
+      "category": "numbers",
+      "a": "How many days are in 3 weeks?",
+      "b": "How many days are in 5 weeks?",
+      "reviewed": false
+    },
+    {
+      "id": "nohit-006",
+      "expected": "no_hit",
+      "category": "numbers",
+      "a": "Give me 3 tips for public speaking.",
+      "b": "Give me 10 tips for public speaking.",
+      "reviewed": false
+    },
+    {
+      "id": "nohit-007",
+      "expected": "no_hit",
+      "category": "numbers",
+      "a": "What is the square root of 144?",
+      "b": "What is the square root of 169?",
+      "reviewed": false
+    },
+    {
+      "id": "nohit-008",
+      "expected": "no_hit",
+      "category": "numbers",
+      "a": "Is 91 a prime number?",
+      "b": "Is 97 a prime number?",
+      "reviewed": false
+    },
+    {
+      "id": "nohit-009",
+      "expected": "no_hit",
+      "category": "numbers",
+      "a": "What is 2 to the power of 10?",
+      "b": "What is 2 to the power of 16?",
+      "reviewed": false
+    },
+    {
+      "id": "nohit-010",
+      "expected": "no_hit",
+      "category": "numbers",
+      "a": "Split a bill of $120 among 4 people.",
+      "b": "Split a bill of $120 among 5 people.",
+      "reviewed": false
+    },
+    {
+      "id": "nohit-011",
+      "expected": "no_hit",
+      "category": "numbers",
+      "a": "What is the sum of the interior angles of a triangle?",
+      "b": "What is the sum of the interior angles of a pentagon?",
+      "reviewed": false
+    },
+    {
+      "id": "nohit-012",
+      "expected": "no_hit",
+      "category": "numbers",
+      "a": "Explain HTTP status code 404.",
+      "b": "Explain HTTP status code 403.",
+      "reviewed": false
+    },
+    {
+      "id": "nohit-013",
+      "expected": "no_hit",
+      "category": "numbers",
+      "a": "What is the area of a circle with radius 3?",
+      "b": "What is the area of a circle with radius 4?",
+      "reviewed": false
+    },
+    {
+      "id": "nohit-014",
+      "expected": "no_hit",
+      "category": "numbers",
+      "a": "Write a 4-line poem about the sea.",
+      "b": "Write a 14-line poem about the sea.",
+      "reviewed": false
+    },
+    {
+      "id": "nohit-015",
+      "expected": "no_hit",
+      "category": "numbers",
+      "a": "What is 100 divided by 4?",
+      "b": "What is 100 divided by 8?",
+      "reviewed": false
+    },
+    {
+      "id": "nohit-016",
+      "expected": "no_hit",
+      "category": "negation",
+      "a": "Which foods are safe for dogs to eat?",
+      "b": "Which foods are not safe for dogs to eat?",
+      "reviewed": false
+    },
+    {
+      "id": "nohit-017",
+      "expected": "no_hit",
+      "category": "negation",
+      "a": "What should I do before a job interview?",
+      "b": "What should I not do before a job interview?",
+      "reviewed": false
+    },
+    {
+      "id": "nohit-018",
+      "expected": "no_hit",
+      "category": "negation",
+      "a": "Which EU countries use the euro?",
+      "b": "Which EU countries do not use the euro?",
+      "reviewed": false
+    },
+    {
+      "id": "nohit-019",
+      "expected": "no_hit",
+      "category": "negation",
+      "a": "Write a SQL query to find customers who placed an order.",
+      "b": "Write a SQL query to find customers who never placed an order.",
+      "reviewed": false
+    },
+    {
+      "id": "nohit-020",
+      "expected": "no_hit",
+      "category": "negation",
+      "a": "Why do some people like cilantro?",
+      "b": "Why do some people dislike cilantro?",
+      "reviewed": false
+    },
+    {
+      "id": "nohit-021",
+      "expected": "no_hit",
+      "category": "negation",
+      "a": "List programming languages that are statically typed.",
+      "b": "List programming languages that are not statically typed.",
+      "reviewed": false
+    },
+    {
+      "id": "nohit-022",
+      "expected": "no_hit",
+      "category": "negation",
+      "a": "What are the advantages of remote work?",
+      "b": "What are the disadvantages of remote work?",
+      "reviewed": false
+    },
+    {
+      "id": "nohit-023",
+      "expected": "no_hit",
+      "category": "negation",
+      "a": "When should I use a linked list?",
+      "b": "When should I avoid using a linked list?",
+      "reviewed": false
+    },
+    {
+      "id": "nohit-024",
+      "expected": "no_hit",
+      "category": "negation",
+      "a": "Which planets in our solar system have moons?",
+      "b": "Which planets in our solar system have no moons?",
+      "reviewed": false
+    },
+    {
+      "id": "nohit-025",
+      "expected": "no_hit",
+      "category": "negation",
+      "a": "What should you do during an earthquake?",
+      "b": "What should you not do during an earthquake?",
+      "reviewed": false
+    },
+    {
+      "id": "nohit-026",
+      "expected": "no_hit",
+      "category": "negation",
+      "a": "Which animals can see in color?",
+      "b": "Which animals cannot see in color?",
+      "reviewed": false
+    },
+    {
+      "id": "nohit-027",
+      "expected": "no_hit",
+      "category": "negation",
+      "a": "Write a regex that matches strings containing digits.",
+      "b": "Write a regex that matches strings without digits.",
+      "reviewed": false
+    },
+    {
+      "id": "nohit-028",
+      "expected": "no_hit",
+      "category": "entities",
+      "a": "What is the capital of Australia?",
+      "b": "What is the capital of Austria?",
+      "reviewed": false
+    },
+    {
+      "id": "nohit-029",
+      "expected": "no_hit",
+      "category": "entities",
+      "a": "Who wrote War and Peace?",
+      "b": "Who wrote Crime and Punishment?",
+      "reviewed": false
+    },
+    {
+      "id": "nohit-030",
+      "expected": "no_hit",
+      "category": "entities",
+      "a": "What is the population of Japan?",
+      "b": "What is the population of China?",
+      "reviewed": false
+    },
+    {
+      "id": "nohit-031",
+      "expected": "no_hit",
+      "category": "entities",
+      "a": "What language is spoken in Brazil?",
+      "b": "What language is spoken in Argentina?",
+      "reviewed": false
+    },
+    {
+      "id": "nohit-032",
+      "expected": "no_hit",
+      "category": "entities",
+      "a": "Who painted the Mona Lisa?",
+      "b": "Who painted The Starry Night?",
+      "reviewed": false
+    },
+    {
+      "id": "nohit-033",
+      "expected": "no_hit",
+      "category": "entities",
+      "a": "What is the tallest mountain in Africa?",
+      "b": "What is the tallest mountain in Europe?",
+      "reviewed": false
+    },
+    {
+      "id": "nohit-034",
+      "expected": "no_hit",
+      "category": "entities",
+      "a": "Who was the first president of the United States?",
+      "b": "Who was the first prime minister of India?",
+      "reviewed": false
+    },
+    {
+      "id": "nohit-035",
+      "expected": "no_hit",
+      "category": "entities",
+      "a": "What currency does Japan use?",
+      "b": "What currency does Switzerland use?",
+      "reviewed": false
+    },
+    {
+      "id": "nohit-036",
+      "expected": "no_hit",
+      "category": "entities",
+      "a": "What time zone is London in?",
+      "b": "What time zone is Tokyo in?",
+      "reviewed": false
+    },
+    {
+      "id": "nohit-037",
+      "expected": "no_hit",
+      "category": "entities",
+      "a": "What does the liver do?",
+      "b": "What does the pancreas do?",
+      "reviewed": false
+    },
+    {
+      "id": "nohit-038",
+      "expected": "no_hit",
+      "category": "entities",
+      "a": "Tell me about the history of Rome.",
+      "b": "Tell me about the history of Athens.",
+      "reviewed": false
+    },
+    {
+      "id": "nohit-039",
+      "expected": "no_hit",
+      "category": "entities",
+      "a": "What year did Apple release the first iPhone?",
+      "b": "What year was the first Android phone released?",
+      "reviewed": false
+    },
+    {
+      "id": "nohit-040",
+      "expected": "no_hit",
+      "category": "entities",
+      "a": "How tall is the Eiffel Tower?",
+      "b": "How tall is the Statue of Liberty?",
+      "reviewed": false
+    },
+    {
+      "id": "nohit-041",
+      "expected": "no_hit",
+      "category": "entities",
+      "a": "What is the chemical symbol for gold?",
+      "b": "What is the chemical symbol for silver?",
+      "reviewed": false
+    },
+    {
+      "id": "nohit-042",
+      "expected": "no_hit",
+      "category": "entities",
+      "a": "What is the main ingredient in guacamole?",
+      "b": "What is the main ingredient in hummus?",
+      "reviewed": false
+    },
+    {
+      "id": "nohit-043",
+      "expected": "no_hit",
+      "category": "entities",
+      "a": "Who discovered penicillin?",
+      "b": "Who discovered insulin?",
+      "reviewed": false
+    },
+    {
+      "id": "nohit-044",
+      "expected": "no_hit",
+      "category": "entities",
+      "a": "Translate 'thank you' into Spanish.",
+      "b": "Translate 'thank you' into Italian.",
+      "reviewed": false
+    },
+    {
+      "id": "nohit-045",
+      "expected": "no_hit",
+      "category": "entities",
+      "a": "What should I pack for a beach vacation?",
+      "b": "What should I pack for a ski vacation?",
+      "reviewed": false
+    },
+    {
+      "id": "nohit-046",
+      "expected": "no_hit",
+      "category": "units-and-direction",
+      "a": "Convert 5 miles to kilometers.",
+      "b": "Convert 5 kilometers to miles.",
+      "reviewed": false
+    },
+    {
+      "id": "nohit-047",
+      "expected": "no_hit",
+      "category": "units-and-direction",
+      "a": "Convert 30 degrees Celsius to Fahrenheit.",
+      "b": "Convert 30 degrees Fahrenheit to Celsius.",
+      "reviewed": false
+    },
+    {
+      "id": "nohit-048",
+      "expected": "no_hit",
+      "category": "units-and-direction",
+      "a": "How many ounces are in a pound?",
+      "b": "How many ounces are in a kilogram?",
+      "reviewed": false
+    },
+    {
+      "id": "nohit-049",
+      "expected": "no_hit",
+      "category": "units-and-direction",
+      "a": "How long is a flight from London to New York?",
+      "b": "How long is a flight from London to Sydney?",
+      "reviewed": false
+    },
+    {
+      "id": "nohit-050",
+      "expected": "no_hit",
+      "category": "units-and-direction",
+      "a": "Convert 1 GB to MB.",
+      "b": "Convert 1 GB to KB.",
+      "reviewed": false
+    },
+    {
+      "id": "nohit-051",
+      "expected": "no_hit",
+      "category": "units-and-direction",
+      "a": "How do I convert a string to an integer in Java?",
+      "b": "How do I convert an integer to a string in Java?",
+      "reviewed": false
+    },
+    {
+      "id": "nohit-052",
+      "expected": "no_hit",
+      "category": "units-and-direction",
+      "a": "How do I convert JSON to XML in Python?",
+      "b": "How do I convert XML to JSON in Python?",
+      "reviewed": false
+    },
+    {
+      "id": "nohit-053",
+      "expected": "no_hit",
+      "category": "units-and-direction",
+      "a": "What is 1 inch in centimeters?",
+      "b": "What is 1 foot in centimeters?",
+      "reviewed": false
+    },
+    {
+      "id": "nohit-054",
+      "expected": "no_hit",
+      "category": "units-and-direction",
+      "a": "What time is it in Tokyo when it is noon in London?",
+      "b": "What time is it in London when it is noon in Tokyo?",
+      "reviewed": false
+    },
+    {
+      "id": "nohit-055",
+      "expected": "no_hit",
+      "category": "units-and-direction",
+      "a": "How do I copy a file from my laptop to a remote server with scp?",
+      "b": "How do I copy a file from a remote server to my laptop with scp?",
+      "reviewed": false
+    },
+    {
+      "id": "nohit-056",
+      "expected": "no_hit",
+      "category": "units-and-direction",
+      "a": "Translate 'cat' into German.",
+      "b": "Translate 'Katze' into English.",
+      "reviewed": false
+    },
+    {
+      "id": "nohit-057",
+      "expected": "no_hit",
+      "category": "units-and-direction",
+      "a": "How many teaspoons are in a tablespoon?",
+      "b": "How many tablespoons are in a cup?",
+      "reviewed": false
+    },
+    {
+      "id": "nohit-058",
+      "expected": "no_hit",
+      "category": "dates-and-times",
+      "a": "Who won the FIFA World Cup in 2018?",
+      "b": "Who won the FIFA World Cup in 2022?",
+      "reviewed": false
+    },
+    {
+      "id": "nohit-059",
+      "expected": "no_hit",
+      "category": "dates-and-times",
+      "a": "What day of the week was January 1, 2000?",
+      "b": "What day of the week was January 1, 2001?",
+      "reviewed": false
+    },
+    {
+      "id": "nohit-060",
+      "expected": "no_hit",
+      "category": "dates-and-times",
+      "a": "Who was the US president in 1990?",
+      "b": "Who was the US president in 2000?",
+      "reviewed": false
+    },
+    {
+      "id": "nohit-061",
+      "expected": "no_hit",
+      "category": "dates-and-times",
+      "a": "What happened in space exploration in 1969?",
+      "b": "What happened in space exploration in 1957?",
+      "reviewed": false
+    },
+    {
+      "id": "nohit-062",
+      "expected": "no_hit",
+      "category": "dates-and-times",
+      "a": "What is the weather usually like in Paris in July?",
+      "b": "What is the weather usually like in Paris in January?",
+      "reviewed": false
+    },
+    {
+      "id": "nohit-063",
+      "expected": "no_hit",
+      "category": "dates-and-times",
+      "a": "Who won the Nobel Prize in Physics in 2020?",
+      "b": "Who won the Nobel Prize in Physics in 2021?",
+      "reviewed": false
+    },
+    {
+      "id": "nohit-064",
+      "expected": "no_hit",
+      "category": "dates-and-times",
+      "a": "How many days are there from December 1 to Christmas?",
+      "b": "How many days are there from November 1 to Christmas?",
+      "reviewed": false
+    },
+    {
+      "id": "nohit-065",
+      "expected": "no_hit",
+      "category": "dates-and-times",
+      "a": "What were the major events of the 1920s?",
+      "b": "What were the major events of the 1960s?",
+      "reviewed": false
+    },
+    {
+      "id": "nohit-066",
+      "expected": "no_hit",
+      "category": "dates-and-times",
+      "a": "When does daylight saving time start in the US?",
+      "b": "When does daylight saving time end in the US?",
+      "reviewed": false
+    },
+    {
+      "id": "nohit-067",
+      "expected": "no_hit",
+      "category": "dates-and-times",
+      "a": "What is the best time of year to visit Japan?",
+      "b": "What is the worst time of year to visit Japan?",
+      "reviewed": false
+    },
+    {
+      "id": "nohit-068",
+      "expected": "no_hit",
+      "category": "code-details",
+      "a": "How do I sort a list in ascending order in Python?",
+      "b": "How do I sort a list in descending order in Python?",
+      "reviewed": false
+    },
+    {
+      "id": "nohit-069",
+      "expected": "no_hit",
+      "category": "code-details",
+      "a": "Write a Python function to check if a number is even.",
+      "b": "Write a Python function to check if a number is odd.",
+      "reviewed": false
+    },
+    {
+      "id": "nohit-070",
+      "expected": "no_hit",
+      "category": "code-details",
+      "a": "What is the difference between let and const in JavaScript?",
+      "b": "What is the difference between let and var in JavaScript?",
+      "reviewed": false
+    },
+    {
+      "id": "nohit-071",
+      "expected": "no_hit",
+      "category": "code-details",
+      "a": "How do I create an index in PostgreSQL?",
+      "b": "How do I drop an index in PostgreSQL?",
+      "reviewed": false
+    },
+    {
+      "id": "nohit-072",
+      "expected": "no_hit",
+      "category": "code-details",
+      "a": "How do I install a package with pip?",
+      "b": "How do I uninstall a package with pip?",
+      "reviewed": false
+    },
+    {
+      "id": "nohit-073",
+      "expected": "no_hit",
+      "category": "code-details",
+      "a": "What does git pull do?",
+      "b": "What does git push do?",
+      "reviewed": false
+    },
+    {
+      "id": "nohit-074",
+      "expected": "no_hit",
+      "category": "code-details",
+      "a": "How do I read a JSON file in Python?",
+      "b": "How do I write a JSON file in Python?",
+      "reviewed": false
+    },
+    {
+      "id": "nohit-075",
+      "expected": "no_hit",
+      "category": "code-details",
+      "a": "Explain HashMap in Java.",
+      "b": "Explain TreeMap in Java.",
+      "reviewed": false
+    },
+    {
+      "id": "nohit-076",
+      "expected": "no_hit",
+      "category": "code-details",
+      "a": "How do I get the first element of an array in JavaScript?",
+      "b": "How do I get the last element of an array in JavaScript?",
+      "reviewed": false
+    },
+    {
+      "id": "nohit-077",
+      "expected": "no_hit",
+      "category": "code-details",
+      "a": "Write a SQL query to count the rows in a table.",
+      "b": "Write a SQL query to delete all rows in a table.",
+      "reviewed": false
+    },
+    {
+      "id": "nohit-078",
+      "expected": "no_hit",
+      "category": "code-details",
+      "a": "How do I make a GET request with curl?",
+      "b": "How do I make a POST request with curl?",
+      "reviewed": false
+    },
+    {
+      "id": "nohit-079",
+      "expected": "no_hit",
+      "category": "code-details",
+      "a": "What is the default port for PostgreSQL?",
+      "b": "What is the default port for MySQL?",
+      "reviewed": false
+    },
+    {
+      "id": "nohit-080",
+      "expected": "no_hit",
+      "category": "code-details",
+      "a": "How do I reverse a list in Python?",
+      "b": "How do I reverse a list in JavaScript?",
+      "reviewed": false
+    },
+    {
+      "id": "nohit-081",
+      "expected": "no_hit",
+      "category": "opposites-and-comparisons",
+      "a": "What is the fastest land animal?",
+      "b": "What is the slowest land animal?",
+      "reviewed": false
+    },
+    {
+      "id": "nohit-082",
+      "expected": "no_hit",
+      "category": "opposites-and-comparisons",
+      "a": "What is the largest ocean?",
+      "b": "What is the smallest ocean?",
+      "reviewed": false
+    },
+    {
+      "id": "nohit-083",
+      "expected": "no_hit",
+      "category": "opposites-and-comparisons",
+      "a": "What are the pros of nuclear energy?",
+      "b": "What are the cons of nuclear energy?",
+      "reviewed": false
+    },
+    {
+      "id": "nohit-084",
+      "expected": "no_hit",
+      "category": "opposites-and-comparisons",
+      "a": "How do I raise my credit score?",
+      "b": "What lowers a credit score?",
+      "reviewed": false
+    },
+    {
+      "id": "nohit-085",
+      "expected": "no_hit",
+      "category": "opposites-and-comparisons",
+      "a": "What is the hottest planet in the solar system?",
+      "b": "What is the coldest planet in the solar system?",
+      "reviewed": false
+    },
+    {
+      "id": "nohit-086",
+      "expected": "no_hit",
+      "category": "opposites-and-comparisons",
+      "a": "What is the longest river in the world?",
+      "b": "What is the longest river in Europe?",
+      "reviewed": false
+    },
+    {
+      "id": "nohit-087",
+      "expected": "no_hit",
+      "category": "opposites-and-comparisons",
+      "a": "What are the first steps to start a business?",
+      "b": "What are the first steps to close a business?",
+      "reviewed": false
+    },
+    {
+      "id": "nohit-088",
+      "expected": "no_hit",
+      "category": "opposites-and-comparisons",
+      "a": "How do I gain weight healthily?",
+      "b": "How do I lose weight healthily?",
+      "reviewed": false
+    },
+    {
+      "id": "nohit-089",
+      "expected": "no_hit",
+      "category": "opposites-and-comparisons",
+      "a": "How do I make my Python code run faster?",
+      "b": "How do I make my Python code use less memory?",
+      "reviewed": false
+    },
+    {
+      "id": "nohit-090",
+      "expected": "no_hit",
+      "category": "opposites-and-comparisons",
+      "a": "What is the largest planet in our solar system?",
+      "b": "What is the smallest planet in our solar system?",
+      "reviewed": false
+    },
+    {
+      "id": "nohit-091",
+      "expected": "no_hit",
+      "category": "audience-and-task",
+      "a": "Explain recursion to a five-year-old.",
+      "b": "Explain recursion to a computer science graduate student.",
+      "reviewed": false
+    },
+    {
+      "id": "nohit-092",
+      "expected": "no_hit",
+      "category": "audience-and-task",
+      "a": "Write a resignation letter.",
+      "b": "Write a letter accepting a job offer.",
+      "reviewed": false
+    },
+    {
+      "id": "nohit-093",
+      "expected": "no_hit",
+      "category": "audience-and-task",
+      "a": "How do I ask my manager for a raise?",
+      "b": "How do I tell an employee they won't get a raise?",
+      "reviewed": false
+    },
+    {
+      "id": "nohit-094",
+      "expected": "no_hit",
+      "category": "audience-and-task",
+      "a": "Write a tweet announcing our product launch.",
+      "b": "Write a tweet apologizing for our product outage.",
+      "reviewed": false
+    },
+    {
+      "id": "nohit-095",
+      "expected": "no_hit",
+      "category": "audience-and-task",
+      "a": "Give me a vegetarian dinner recipe.",
+      "b": "Give me a vegan dinner recipe.",
+      "reviewed": false
+    },
+    {
+      "id": "nohit-096",
+      "expected": "no_hit",
+      "category": "audience-and-task",
+      "a": "Recommend a beginner book on Python.",
+      "b": "Recommend an advanced book on Python.",
+      "reviewed": false
+    },
+    {
+      "id": "nohit-097",
+      "expected": "no_hit",
+      "category": "audience-and-task",
+      "a": "Write a short children's story about a dragon.",
+      "b": "Write a short horror story about a dragon.",
+      "reviewed": false
+    },
+    {
+      "id": "nohit-098",
+      "expected": "no_hit",
+      "category": "audience-and-task",
+      "a": "Explain how to play chess.",
+      "b": "Explain how to play checkers.",
+      "reviewed": false
+    },
+    {
+      "id": "nohit-099",
+      "expected": "no_hit",
+      "category": "audience-and-task",
+      "a": "Plan a 3-day trip to Paris.",
+      "b": "Plan a 3-day trip to Rome.",
+      "reviewed": false
+    },
+    {
+      "id": "nohit-100",
+      "expected": "no_hit",
+      "category": "audience-and-task",
+      "a": "Summarize the pros and cons of electric cars.",
+      "b": "Summarize the pros and cons of hybrid cars.",
+      "reviewed": false
+    }
+  ]
+}
