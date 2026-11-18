@@ -1042,3 +1042,39 @@ Each scenario ran on its own GitHub-hosted runner.
   ≈ the slow fraction) are robust; exact milliseconds will vary between runs.
 - With three instances, each has its own breaker, latency history and budgets, so the
   numbers include three warm-ups and three sets of half-open trials.
+
+## 32. Semantic cache: what is cacheable, and what counts as "the same request"
+
+**Owner's choices for week 4:** embeddings from a local embedding service shared by all
+instances (note 33), cached answers and vectors in Redis with vector search (note 34), and
+the eligibility rule below.
+
+**Eligibility:**
+- **Exact layer:** the request explicitly sets `temperature` ≤ 0.3. An unset temperature
+  means the provider's default (1.0 at OpenAI), so the caller didn't ask for a stable
+  answer, and serving every caller the same text would change their results.
+- **Semantic layer:** additionally **single-turn**: optional system messages, then exactly one
+  user message. Two conversations can end with the same question after very different
+  context, so matching whole conversations "by meaning" is far riskier than matching one
+  question.
+- Streaming requests are eligible; a hit is replayed as SSE.
+
+**Scope (`CacheKeys.scope`):** a hash of client id, model, system prompt and sampling
+settings (`temperature`, `top_p`, `max_tokens`, `stop`). Lookups only ever happen inside one
+scope, so **one client never receives another client's answer**, and an answer generated
+under one system prompt or temperature is never served under another. The client id stands
+for the API key: they map one-to-one (note 17), and the id is not a secret.
+
+**Normalization** (for the exact key, and for the text that is embedded): trim, collapse every
+run of whitespace to one space, Unicode NFC (so an accented character typed two different ways
+compares equal). **Case is kept:** "US" and "us" can mean different things, and a wrong hit is
+worse than a miss. The exact key hashes the scope plus every non-system message with a length
+prefix, so `("ab","c")` and `("a","bc")` can't collide. `stream` and `stream_options` are not
+part of any key, because the same answer can be replayed either way.
+
+**Rejected:**
+- *Lower-casing or stripping punctuation for the exact key:* more hits, but
+  "Let's eat, Grandma" and "Let's eat Grandma" stop being different. Fuzzy matching is the
+  semantic layer's job, and that layer is measured.
+- *Caching every request with an opt-out header:* highest hit rate, but it silently returns
+  identical text to callers who asked for variety (high temperature).
