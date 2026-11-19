@@ -92,11 +92,13 @@ class ResilientExecutorTest {
         adapter.script("a", fail(503), fail(503));
         adapter.script("b", ok());
 
-        ChatCompletionResponse response = executor.complete(context());
+        ChatContext context = context();
+        ChatCompletionResponse response = executor.complete(context);
 
         assertThat(response.id()).isEqualTo("from-b");
         assertThat(adapter.calls).containsExactly("a", "a", "b");
         assertThat(adapter.modelsSent).containsExactly("m", "m", "model-for-b");
+        assertThat(context.trace().provider()).as("the provider that answered, for usage events").isEqualTo("b");
     }
 
     @Test

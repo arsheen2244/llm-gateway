@@ -102,6 +102,10 @@ gateway:
       timeout: 500ms
       dimensions: 384         # BAAI/bge-small-en-v1.5
 
+  # One usage event per request, for accounting (design note 37).
+  usage:
+    enabled: true
+
   # Per-client limits come from gateway.auth.clients (design notes 18-19).
   rate-limit:
     enabled: true

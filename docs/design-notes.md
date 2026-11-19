@@ -1254,3 +1254,44 @@ evaluation served 9 wrong answers for every 12 paraphrases.
 **Limits of this evaluation:** pairs are scored on their own (in the gateway the nearest of
 all cached prompts in the scope wins, so more entries mean more chances of a false hit); 200
 English, single-sentence prompts; one model.
+
+## 37. Usage events: one per request, recorded at the front of the chain
+
+**Where:** `UsageInterceptor`, order 50, ahead of rate limiting (100) and the cache (200). Being
+first means it sees every outcome: answers from a provider or from the cache, rate-limit
+refusals, provider failures, clients leaving mid-stream. Each request produces exactly one
+`UsageEvent`, published after the request is done to a `UsageSink`. Step 1 ships a sink that
+only logs at DEBUG; step 2 replaces it with Kafka (note 38).
+
+**What an event holds:** event ID (a random UUID), client id, model as requested, provider,
+prompt and completion tokens, latency, cache outcome (`X-Cache`, or `none` if the request ended
+before the cache ran), status (`SUCCESS`, `RATE_LIMITED`, `PROVIDER_ERROR`,
+`CLIENT_DISCONNECTED`, `ERROR`), whether it was a stream, and when it finished.
+- **Client id, never the API key.** The key is a secret; the id already identifies the caller,
+  and `GET /v1/usage` looks usage up by the id the key maps to.
+- **Event ID made in the gateway.** It is what makes the consumer idempotent (note 39): a
+  redelivered event carries the same ID and is ignored.
+- **Tokens, not cost.** The consumer prices events from its `model_prices` table, so prices live
+  in one place and changing one needs no gateway redeploy. *Trade-off:* the brief lists cost as
+  an event field; it is stored on each event's row instead, not carried in the Kafka message.
+- **Which provider answered.** With failover (note 25) it can differ from the route's first
+  provider. The executor records each attempt's provider in a per-request `CallTrace` carried by
+  `ChatContext`; after a success, the latest attempt is the one that answered. Null when no
+  provider was called (rate-limited, cache hit).
+- **Tokens of a cache hit** are the cached answer's counts (what the client sees in `usage`),
+  with no provider; the consumer charges cache hits nothing.
+- **Streams** take tokens from the final usage chunk, which the gateway always requests from the
+  provider (note 12), even when the client didn't ask for it.
+
+**Never slows or fails a request:** publishing is wrapped so that a throwing sink is logged and
+ignored, and the client still gets its answer or its original error. The sink is called on the
+request thread, so it must return at once; the Kafka sink hands the event to the producer's
+buffer and returns (note 38).
+
+**Not recorded (limitations):**
+- Requests rejected before the pipeline (bad API key, invalid body, unknown model, no provider
+  configured): nothing was attempted, and no tokens were spent.
+- Tokens of a stream that broke or was abandoned before the usage chunk: recorded as 0, though
+  the provider may have billed part of it. (The rate limiter instead keeps its estimate in that
+  case, note 19: for limits, over-counting is the safe side; for billing, an invented number
+  is not.)
