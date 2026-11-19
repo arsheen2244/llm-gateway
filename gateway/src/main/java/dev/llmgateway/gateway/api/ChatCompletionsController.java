@@ -4,6 +4,7 @@ import dev.llmgateway.gateway.api.dto.ChatCompletionRequest;
 import dev.llmgateway.gateway.api.dto.ChatCompletionResponse;
 import dev.llmgateway.gateway.auth.ClientIdentity;
 import dev.llmgateway.gateway.pipeline.ChatPipeline;
+import dev.llmgateway.gateway.pipeline.RequestOptions;
 import dev.llmgateway.gateway.pipeline.ResponseHeaders;
 import jakarta.servlet.http.HttpServletResponse;
 import jakarta.validation.Valid;
@@ -11,6 +12,7 @@ import org.springframework.http.MediaType;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestAttribute;
 import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RestController;
 
 /** The single public endpoint, compatible with OpenAI's Chat Completions API. */
@@ -37,13 +39,15 @@ public class ChatCompletionsController {
     public ChatCompletionResponse chatCompletions(
             @Valid @RequestBody ChatCompletionRequest request,
             @RequestAttribute(ClientIdentity.REQUEST_ATTRIBUTE) ClientIdentity client,
+            @RequestHeader(name = "Cache-Control", required = false) String cacheControl,
             HttpServletResponse response) {
+        RequestOptions options = RequestOptions.fromCacheControl(cacheControl);
         if (request.streaming()) {
-            streamingHandler.handle(request, client, response);
+            streamingHandler.handle(request, client, options, response);
             return null;
         }
         ResponseHeaders headers = new ResponseHeaders();
-        ChatCompletionResponse body = pipeline.complete(request, client, headers);
+        ChatCompletionResponse body = pipeline.complete(request, client, headers, options);
         // Spring writes the body after this method returns, so headers set now still go out.
         headers.asMap().forEach(response::setHeader);
         return body;

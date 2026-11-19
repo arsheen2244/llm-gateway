@@ -87,6 +87,21 @@ gateway:
       sample-window: 200
       max-ratio: 0.05       # hedges for at most 5% of requests
 
+  # Response cache (design notes 32-36).
+  cache:
+    enabled: true
+    store: in-memory          # 'redis' to share one cache across instances
+    ttl: 1h
+    max-temperature: 0.3      # only requests that explicitly set temperature <= this
+    # Meaning-based matching. Off: in the evaluation no threshold kept wrong answers out
+    # (design note 36, results/cache-threshold/).
+    semantic-enabled: false
+    similarity-threshold: 0.95
+    embedding:                # local text-embeddings-inference service (design note 34)
+      url: ${GATEWAY_CACHE_EMBEDDING_URL:http://localhost:8082}
+      timeout: 500ms
+      dimensions: 384         # BAAI/bge-small-en-v1.5
+
   # Per-client limits come from gateway.auth.clients (design notes 18-19).
   rate-limit:
     enabled: true

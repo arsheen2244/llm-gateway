@@ -5,6 +5,7 @@ import dev.llmgateway.gateway.api.dto.ChatCompletionRequest;
 import dev.llmgateway.gateway.auth.ClientIdentity;
 import dev.llmgateway.gateway.observability.LogFields;
 import dev.llmgateway.gateway.pipeline.ChatPipeline;
+import dev.llmgateway.gateway.pipeline.RequestOptions;
 import dev.llmgateway.gateway.pipeline.ResponseHeaders;
 import dev.llmgateway.gateway.provider.ProviderException;
 import dev.llmgateway.gateway.streaming.ClientDisconnectedException;
@@ -45,11 +46,12 @@ public class StreamingChatHandler {
         this.json = json;
     }
 
-    public void handle(ChatCompletionRequest request, ClientIdentity client, HttpServletResponse response) {
+    public void handle(ChatCompletionRequest request, ClientIdentity client, RequestOptions options,
+                       HttpServletResponse response) {
         ResponseHeaders headers = new ResponseHeaders();
         SseResponse sse = new SseResponse(response, json, headers);
         try {
-            pipeline.stream(request, client, headers, chunk -> {
+            pipeline.stream(request, client, headers, options, chunk -> {
                 // The usage-only chunk is always fetched (for accounting) but only
                 // forwarded if the client asked for it, as OpenAI itself behaves.
                 if (chunk.usageOnly() && !request.usageRequested()) {

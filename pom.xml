@@ -56,6 +56,11 @@
                 <artifactId>maven-surefire-plugin</artifactId>
                 <configuration>
                     <argLine>-javaagent:"${org.mockito:mockito-core:jar}" -Xshare:off</argLine>
+                    <systemPropertyVariables>
+                        <!-- Fake servers in tests (JDK HttpServer) must not add a Nagle delay of
+                             their own; read once, when the first one starts (design note 16). -->
+                        <sun.net.httpserver.nodelay>true</sun.net.httpserver.nodelay>
+                    </systemPropertyVariables>
                 </configuration>
             </plugin>
         </plugins>

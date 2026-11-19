@@ -24,6 +24,10 @@ jobs:
       - name: Build and test
         run: ./mvnw -B verify
 
+      # The semantic-cache threshold sweep's own logic (eval/, design note 36).
+      - name: Eval script tests
+        run: python3 -m unittest discover eval
+
       # Raw logs and step summaries need a GitHub login; annotations do not. On failure,
       # turn each failing test into an annotation (test name + error line) so anyone
       # viewing the run can see what broke. GitHub shows up to 10 errors and 10 warnings
@@ -68,11 +72,20 @@ jobs:
       - name: Build images
         run: docker compose build
 
+      # The semantic profile adds the embedding service, checked below.
       - name: Start stack
-        run: docker compose up -d
+        run: docker compose --profile semantic up -d
 
       - name: Smoke test through the gateway
         run: bash scripts/smoke-test.sh http://localhost:8080
+
+      # The model downloads on first start, so allow a few minutes.
+      - name: Embedding service answers
+        run: bash scripts/check-embeddings.sh http://localhost:8082
+
+      # Embeds every labelled pair through the real service; prints no rates (design note 36).
+      - name: Threshold sweep runs (check only)
+        run: python3 eval/sweep_threshold.py --check-only
 
       - name: Show logs on failure
         if: failure()
@@ -80,4 +93,4 @@ jobs:
 
       - name: Stop stack
         if: always()
-        run: docker compose down
+        run: docker compose --profile semantic down

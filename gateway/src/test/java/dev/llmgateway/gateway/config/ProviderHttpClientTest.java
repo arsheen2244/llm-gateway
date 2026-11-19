@@ -43,7 +43,8 @@ class ProviderHttpClientTest {
         // The fake server must not add a Nagle delay of its own: the JDK's HttpServer writes
         // response headers and body separately with Nagle ON, which on Linux costs ~40 ms per
         // request (delayed ACK) and made the Nagle test measure the server, not our client.
-        // Read once when the JDK server first starts, so it is set before any test runs.
+        // Read once when the first JDK server starts, in any test class, so the build sets it
+        // for the whole test JVM (root pom.xml, surefire). Kept here for IDE runs of this class.
         System.setProperty("sun.net.httpserver.nodelay", "true");
     }
 

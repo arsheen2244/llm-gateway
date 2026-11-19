@@ -1042,3 +1042,215 @@ Each scenario ran on its own GitHub-hosted runner.
   ≈ the slow fraction) are robust; exact milliseconds will vary between runs.
 - With three instances, each has its own breaker, latency history and budgets, so the
   numbers include three warm-ups and three sets of half-open trials.
+
+## 32. Semantic cache: what is cacheable, and what counts as "the same request"
+
+**Owner's choices for week 4:** embeddings from a local embedding service shared by all
+instances (note 34), cached answers and vectors in Redis with vector search (note 35), and
+the eligibility rule below. How answers are served and stored is note 33; the similarity
+threshold is chosen in note 36.
+
+**Eligibility:**
+- **Exact layer:** the request explicitly sets `temperature` ≤ 0.3. An unset temperature
+  means the provider's default (1.0 at OpenAI), so the caller didn't ask for a stable
+  answer, and serving every caller the same text would change their results.
+- **Semantic layer:** additionally **single-turn**: optional system messages, then exactly one
+  user message. Two conversations can end with the same question after very different
+  context, so matching whole conversations "by meaning" is far riskier than matching one
+  question.
+- Streaming requests are eligible; a hit is replayed as SSE.
+
+**Scope (`CacheKeys.scope`):** a hash of client id, model, system prompt and sampling
+settings (`temperature`, `top_p`, `max_tokens`, `stop`). Lookups only ever happen inside one
+scope, so **one client never receives another client's answer**, and an answer generated
+under one system prompt or temperature is never served under another. The client id stands
+for the API key: they map one-to-one (note 17), and the id is not a secret.
+
+**Normalization** (for the exact key, and for the text that is embedded): trim, collapse every
+run of whitespace to one space, Unicode NFC (so an accented character typed two different ways
+compares equal). **Case is kept:** "US" and "us" can mean different things, and a wrong hit is
+worse than a miss. The exact key hashes the scope plus every non-system message with a length
+prefix, so `("ab","c")` and `("a","bc")` can't collide. `stream` and `stream_options` are not
+part of any key, because the same answer can be replayed either way.
+
+**Rejected:**
+- *Lower-casing or stripping punctuation for the exact key:* more hits, but
+  "Let's eat, Grandma" and "Let's eat Grandma" stop being different. Fuzzy matching is the
+  semantic layer's job, and that layer is measured.
+- *Caching every request with an opt-out header:* highest hit rate, but it silently returns
+  identical text to callers who asked for variety (high temperature).
+
+## 33. Serving and storing cached answers (exact layer)
+
+**Where:** `CacheInterceptor`, in the interceptor chain right **after rate limiting** (order 200,
+behind the limiter's 100, both declared through Spring's `Ordered`). A cache hit still counts
+as a request against the client's limit, but the limiter sees `X-Cache: exact|semantic` and
+**refunds the reserved tokens**, since no provider tokens were spent. The response still carries
+the original call's `usage`, so clients see the normal OpenAI shape.
+
+**`X-Cache` header:**
+- `exact` (or `semantic`): answered from the cache; no provider was called.
+- `miss`: the cache was checked and had nothing.
+- `bypass`: the cache was not used, because the client sent `Cache-Control: no-cache`/`no-store`
+  or the request isn't eligible (note 32). This is one value beyond the brief's three: it
+  separates "checked, nothing there" from "not checked at all", which hit-rate numbers need.
+
+**What gets stored:** only complete answers: `finish_reason` `stop`, or `length` (cut at
+`max_tokens`, which is part of the scope, so it is reproducible). Failed calls and broken
+streams are never stored.
+
+**Streaming:**
+- *Miss:* the chunks pass through to the client untouched while a collector rebuilds the full
+  text, and it is stored only if the stream completes.
+- *Hit:* the cached answer is replayed the way a provider streams: a role chunk, the text in
+  word-sized pieces, a finish chunk, then the usage chunk (forwarded only if the client asked
+  for it, note 12).
+- An answer cached from a stream serves a normal request, and vice versa: the key ignores
+  `stream` (note 32).
+
+**Stores (`CacheStore`):** `in-memory` (the default; single instance and tests; lazy expiry and a
+10,000-entry cap) and `redis` (each answer is one JSON string under `cache:exact:<key>` with a
+Redis TTL, shared by every instance). Docker Compose uses Redis. The cache must never fail a
+request: store errors are logged and treated as misses.
+*Rejected:* an LRU eviction policy for the in-memory store; with several instances the Redis
+store is the right tool.
+
+## 34. Embeddings: a local service shared by all instances
+
+**Owner's choice:** a separate **embedding service container** rather than a model loaded
+inside each gateway JVM. Hugging Face **text-embeddings-inference (TEI)** on CPU, running
+**`BAAI/bge-small-en-v1.5`**: 384 dimensions, ~130 MB, English, near the top of its size class
+on retrieval and similarity benchmarks. It runs locally, so tests and benchmarks cost nothing.
+
+| Option | For | Against |
+|---|---|---|
+| **Service container (chosen)** | One model in memory for all 3 instances; the gateway stays a small JVM; the eval script calls exactly the same service, so measured thresholds apply to production | One more container and network hop |
+| Model inside the JVM (ONNX Runtime / DJL) | No hop | ~130 MB model + native runtime in every instance; Java inference libraries add weight; the Python eval would need a second, possibly different, implementation |
+| Hosted embedding API | No ops | Costs money per call, sends prompts to a third party, and tests would need a key |
+
+**Client (`TeiEmbedder`):** `POST /embed` with `normalize: true` (unit-length vectors, so
+cosine similarity is a dot product) and **`truncate: false`**. The model reads at most 512
+tokens; silently cutting longer prompts would make two prompts that differ only near the end
+look identical, which would serve a wrong answer. Too long is an error, so the semantic layer is
+skipped for that request. Every answer is checked to be exactly 384 numbers, the length the
+vector index (note 35) is built for.
+
+**Never slow down or fail the request:** a **500 ms** connect/read timeout, no automatic retries,
+and its **own small connection pool** (50), separate from the providers' pool (note 16), so a
+stuck embedding service can't use up provider connections. Any failure is an
+`EmbeddingException`, which the cache treats as a semantic miss. In Compose the gateways start
+without waiting for the model to load, for the same reason.
+
+**Checked in CI:** the Compose smoke test runs `scripts/check-embeddings.sh`, which waits for the
+model, checks the vector length and prints the similarity of a paraphrase pair and an unrelated
+pair (a sanity check, not a measurement; the threshold comes from the labelled evaluation).
+
+*Not done:* pinning the model to a specific Hugging Face revision; the image tag is pinned
+(`cpu-1.8.1`), the model files are not.
+
+## 35. Semantic layer: Redis vector search
+
+**Owner's choice:** store prompt embeddings in **Redis with vector search**, the Redis that
+already holds rate limits and exact entries. Compose and the Redis tests move from
+`redis:7.4-alpine` to **`redis:8.2`**, which has the query engine (search and vectors) built in.
+*Rejected:* a separate vector database (pgvector, Qdrant): one more service to run and keep
+in sync, for a cache that holds thousands of entries per scope, not millions.
+
+**Lookup order:** exact key first (one `GET`), then, only for single-turn requests (note 32):
+1. embed the normalized user message (note 34);
+2. search **within the request's scope** (client, model, system prompt, sampling
+   parameters) for the nearest cached prompt;
+3. hit if cosine similarity ≥ `gateway.cache.similarity-threshold`: `X-Cache: semantic` plus
+   **`X-Cache-Similarity`** (e.g. `0.9612`), so a client or the evaluation can see how close the
+   match was.
+
+On a miss, the answer is stored in **both** layers, reusing the embedding from the lookup (one
+embedding call per request at most). A semantic miss costs one embedding call plus one search
+before the provider call; that overhead goes into the week-5 load test, not guessed here.
+
+**Storage:** each answer is a Redis hash `cache:sem:<uuid>` with `scope` (TAG), `vector`
+(384 float32, little-endian) and `answer` (JSON), plus a TTL. The index:
+
+```
+FT.CREATE cache-semantic ON HASH PREFIX 1 cache:sem:
+  SCHEMA scope TAG  vector VECTOR FLAT 6 TYPE FLOAT32 DIM 384 DISTANCE_METRIC COSINE
+```
+
+- **Scope as a TAG filter inside the KNN query** (`(@scope:{…})=>[KNN 1 @vector $vec]`), so the
+  search only ever considers this client's entries for this model, system prompt and settings.
+  One client can never receive another's answer, even at similarity 1.0.
+- **FLAT (exact) rather than HNSW (approximate):** a scope holds thousands of entries, where an
+  exact scan is fast, and exact search means production finds the same nearest neighbour the
+  threshold evaluation found. HNSW is the switch if scopes grow to hundreds of thousands.
+- **The index is created on first use**, by whichever instance gets there first ("already
+  exists" is ignored), so a gateway can start while Redis is down.
+- **Expiry:** Redis TTLs on the hashes; expired hashes leave the index on their own.
+- **The search runs inside a small Lua script** (`cache/semantic_search.lua`). Not for
+  atomicity: inside a script the reply always has the classic RESP2 shape, whatever protocol
+  the client connection negotiated (Lettuce prefers RESP3, where `FT.SEARCH` replies are maps).
+  Redis reports cosine *distance*; similarity = 1 − distance.
+
+**In-memory store:** the same behaviour with a linear scan of the scope's entries, for a single
+instance and the unit tests.
+
+**Threshold:** `0.95` is a placeholder; note 36 chooses it from the labelled evaluation.
+
+## 36. Similarity threshold: none is safe, so the semantic layer ships off
+
+**Measured** on 2026-11-18 (GitHub Actions run 44356432771; files in
+`results/cache-threshold/`): 200 labelled pairs (`eval/cache-pairs.json`), 100 paraphrases that
+should hit and 100 look-alikes that must not, embedded with `BAAI/bge-small-en-v1.5` through
+the same TEI service and text normalization as the gateway.
+
+**About the labels:** Claude drafted them. The owner delegated the review to Claude, which
+re-read every pair, reworded three ambiguous paraphrases and flipped no labels. They are one
+careful pass, not an independent human review.
+
+| Threshold | Hit rate (paraphrases served) | False-hit rate (wrong answers served) |
+|---|---|---|
+| 0.80 | 98% | 77% |
+| 0.85 | 92% | 58% |
+| 0.90 | 72% | 30% |
+| 0.93 | 37% | 16% |
+| 0.95 | 12% | 9% |
+| 0.97 | 4% | 6% |
+| 0.99 | 0% | 5% |
+
+(Every threshold from 0.70 to 0.99 is in `results/cache-threshold/threshold-sweep.md`, with a plot.)
+
+**No threshold works.** A cache that serves a wrong answer is worse than no cache, so the
+target was a false-hit rate near zero. The look-alikes and the paraphrases overlap completely:
+
+- **Direction swaps score higher than any paraphrase.** "Convert 5 miles to kilometers" vs
+  "…5 kilometers to miles" is **0.992**; the scp upload vs download pair is **0.999**; Tokyo/London
+  time, string↔integer, Celsius↔Fahrenheit and JSON↔XML are all ≥ 0.989. The model reads which
+  words appear, barely their order.
+- **Other look-alikes reach the paraphrase range:** a different language (reverse a list in
+  Python vs JavaScript, 0.955), a different number (split $120 among 4 vs 5 people, 0.954), a
+  different word that flips the answer (daylight saving *start* vs *end*, 0.951), negation
+  (median 0.912).
+- **Real paraphrases often score lower:** "How do I create a virtual environment in Python?"
+  vs "What's the command to set up a Python venv?" is 0.752; typos ("hw do i learn pythn fast")
+  0.805. The paraphrase median is about 0.92, which is also where negation pairs sit.
+
+**Decision (owner's choice): the semantic layer stays in the code, switched off by default**
+(`gateway.cache.semantic-enabled: false`). The exact layer (note 33) runs as before. The
+embedding service moves to a Compose profile (`--profile semantic`) so the default stack
+doesn't run a model nothing uses; CI still starts it, checks it, and runs the evaluation
+pipeline. `similarity-threshold` stays at 0.95 only so the setting has a value; at 0.95 this
+evaluation served 9 wrong answers for every 12 paraphrases.
+
+*Rejected for now:*
+- **A reranker** (a cross-encoder such as `bge-reranker-base` reading both prompts together,
+  which does notice order and negation) as a second check on each candidate. Promising, but a
+  second ~1 GB model, added latency on every miss, and a new labelled set would be needed to
+  measure it fairly, since these 200 pairs were used to find the problem.
+- **Rule-based guards** (numbers must match, negation words must match, same words in a
+  different order means no match). Cheap, but written against exactly these look-alikes, so the
+  same set can't measure them honestly.
+- **A larger embedding model.** Still one vector per prompt, built the same way; nothing here
+  suggests it would separate "A to B" from "B to A".
+
+**Limits of this evaluation:** pairs are scored on their own (in the gateway the nearest of
+all cached prompts in the scope wins, so more entries mean more chances of a false hit); 200
+English, single-sentence prompts; one model.

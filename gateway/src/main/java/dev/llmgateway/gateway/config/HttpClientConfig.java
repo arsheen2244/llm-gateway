@@ -10,6 +10,7 @@ import org.apache.hc.core5.http.io.SocketConfig;
 import org.apache.hc.core5.util.Timeout;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.context.annotation.Primary;
 import dev.llmgateway.gateway.provider.call.CancellableRequestFactory;
 import dev.llmgateway.gateway.provider.call.FirstByteInterceptor;
 import org.springframework.web.client.RestClient;
@@ -36,6 +37,8 @@ public class HttpClientConfig {
     static final int MAX_CONNECTIONS_TOTAL = 500;
     static final int MAX_CONNECTIONS_PER_PROVIDER = 200;
 
+    /** Primary: the cache's embedding client (design note 34) is a second, separate one. */
+    @Primary
     @Bean(destroyMethod = "close")
     CloseableHttpClient providerHttpClient(GatewayProperties properties) {
         GatewayProperties.Timeouts timeouts = properties.timeouts();

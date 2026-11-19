@@ -145,7 +145,8 @@ class RateLimitInterceptorTest {
 
     private ChatContext context() {
         return new ChatContext(CLIENT, REQUEST, new ProviderConfig("p", "openai", "http://x", "k"),
-                new ResponseHeaders(), List.of());
+                new ResponseHeaders(), List.of(),
+                dev.llmgateway.gateway.pipeline.RequestOptions.DEFAULTS);
     }
 
     private Limits limits() {

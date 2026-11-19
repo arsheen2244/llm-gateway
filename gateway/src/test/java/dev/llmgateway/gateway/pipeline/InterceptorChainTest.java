@@ -22,7 +22,8 @@ class InterceptorChainTest {
     private static final ChatCompletionChunk CHUNK =
             new ChatCompletionChunk("c", "chat.completion.chunk", 0, "m", List.of(), null);
     private static final ChatContext CONTEXT =
-            new ChatContext(null, null, new ProviderConfig("p", "fake", "http://x", "k"), null, java.util.List.of());
+            new ChatContext(null, null, new ProviderConfig("p", "fake", "http://x", "k"), null, java.util.List.of(),
+            dev.llmgateway.gateway.pipeline.RequestOptions.DEFAULTS);
 
     private final List<String> calls = new ArrayList<>();
     private final ProviderAdapter provider = new FakeAdapter();
