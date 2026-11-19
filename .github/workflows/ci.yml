@@ -72,8 +72,9 @@ jobs:
       - name: Build images
         run: docker compose build
 
+      # The semantic profile adds the embedding service, checked below.
       - name: Start stack
-        run: docker compose up -d
+        run: docker compose --profile semantic up -d
 
       - name: Smoke test through the gateway
         run: bash scripts/smoke-test.sh http://localhost:8080
@@ -92,4 +93,4 @@ jobs:
 
       - name: Stop stack
         if: always()
-        run: docker compose down
+        run: docker compose --profile semantic down

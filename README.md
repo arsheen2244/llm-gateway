@@ -7,10 +7,10 @@ or a local mock), translates between their formats, and relays streaming respons
 Built with Java 21 and Spring Boot 3 (Spring MVC on **virtual threads**: plain blocking
 code that still handles many open streams).
 
-> **Status: weeks 1–3 of 5.** The core proxy, streaming, two provider adapters, a mock
-> provider, API-key auth, distributed token-aware rate limiting and resilience (deadlines,
-> circuit breakers, retries, failover, hedging) are done. Caching and cost tracking come next
-> (see [Roadmap](#roadmap)).
+> **Status: weeks 1–4 of 5.** The core proxy, streaming, two provider adapters, a mock
+> provider, API-key auth, distributed token-aware rate limiting, resilience (deadlines,
+> circuit breakers, retries, failover, hedging) and a response cache are done. Cost tracking
+> and metrics come next (see [Roadmap](#roadmap)).
 
 ## What it does today
 
@@ -33,6 +33,10 @@ code that still handles many open streams).
   breaker per provider; retries with exponential backoff and full jitter, capped by a retry
   budget; failover along an ordered list of providers per model (streams only before their
   first byte); and hedged requests for slow non-streaming calls
+- **Response cache:** identical low-temperature requests from the same client are answered
+  from Redis without calling a provider, also for streaming clients (replayed as SSE), with an
+  `X-Cache` header and `Cache-Control: no-cache` to bypass it. A meaning-based (semantic) layer
+  is built and evaluated, but off by default: the evaluation found it serves wrong answers
 - Structured JSON logs with a request ID and client ID on every line
 - Docker Compose with **nginx in front of three gateway instances** sharing one Redis,
   k6 tests (latency overhead, rate-limit drift), and GitHub Actions CI
@@ -118,13 +122,15 @@ flowchart LR
         CT --> P[ChatPipeline]
         P --> R[ModelRouter]
         P --> RL[RateLimitInterceptor<br/>reserve, 429, reconcile]
-        RL --> EX[ResilientExecutor<br/>breakers, retries, failover, hedging]
+        RL --> CA[CacheInterceptor<br/>exact match, X-Cache]
+        CA --> EX[ResilientExecutor<br/>breakers, retries, failover, hedging]
         EX --> A{Adapter}
         A --> OA[OpenAiAdapter]
         A --> AA[AnthropicAdapter]
     end
 
-    RL <-->|Lua scripts| RD[(Redis<br/>shared windows)]
+    RL <-->|Lua scripts| RD[(Redis 8<br/>rate-limit windows,<br/>cached answers)]
+    CA <--> RD
     OA --> OAPI[OpenAI API]
     AA --> AAPI[Anthropic API]
     OA -. mock-* .-> M[Mock provider]
@@ -295,6 +301,40 @@ on GitHub Actions (`load-test/resilience.js`; design note 31 has the method and 
 
 During the outage the dead provider received 69 calls in 90 s instead of up to 3,600.
 
+## Response cache
+
+- **Exact layer (on):** a request is cached only if it explicitly sets `temperature` ≤ 0.3.
+  The key is a hash of the client, model, system prompt, sampling settings and the normalized
+  messages, so one client never receives another client's answer. Entries live in Redis with
+  a TTL (1 h by default), shared by all instances.
+- `X-Cache: exact | semantic | miss | bypass` on every response; `Cache-Control: no-cache`
+  skips the cache. A hit still counts as a request for rate limiting, but its tokens are
+  refunded.
+- Only complete answers are stored (never failed calls or broken streams), and a cached
+  answer serves both normal and streaming clients.
+- **Semantic layer (built, off by default):** embeds single-turn prompts with a local
+  `bge-small-en-v1.5` model (text-embeddings-inference) and searches Redis vector search within
+  the client's scope. Turn it on with `GATEWAY_CACHE_SEMANTIC=true docker compose --profile semantic up`.
+
+### Measured: can a similarity threshold be trusted? (2026-11-18)
+
+200 labelled prompt pairs ([eval/](eval/README.md)): 100 paraphrases that should share an
+answer, 100 look-alikes that must not. Labels drafted by Claude and reviewed by Claude at the
+owner's request (not an independent human review). GitHub Actions run 44356432771:
+
+| Threshold | Paraphrases served | Wrong answers served |
+|---|---|---|
+| 0.85 | 92% | 58% |
+| 0.90 | 72% | 30% |
+| 0.95 | 12% | 9% |
+| 0.99 | 0% | 5% |
+
+No threshold separates them: "Convert 5 miles to kilometers" and "Convert 5 kilometers to
+miles" score 0.992, higher than most true paraphrases. So the semantic layer ships off.
+Design note 36 has the cases it still gets wrong and what was considered instead.
+Reproduce: Actions tab → *Cache threshold sweep* → *Run workflow*, or
+`docker compose --profile semantic up -d embeddings` then `python eval/sweep_threshold.py`.
+
 ## Tests
 
 ```bash
@@ -387,7 +427,8 @@ smaller than the noise. That is why the headline table above uses a zero-latency
 1. ✅ Core proxy with streaming, OpenAI and Anthropic adapters, mock provider
 2. ✅ Distributed token-aware rate limiting (Redis + Lua, 3 gateway instances)
 3. ✅ Resilience: circuit breakers, retries with backoff and jitter, failover, hedged requests
-4. Semantic cache, with an evaluation set measuring hit rate vs false hits
+4. ✅ Response cache (exact match on), semantic layer evaluated against labelled pairs and
+   left off because no threshold kept wrong answers out
 5. Usage and cost accounting via Kafka into PostgreSQL, metrics, load tests
 
 ## Design decisions

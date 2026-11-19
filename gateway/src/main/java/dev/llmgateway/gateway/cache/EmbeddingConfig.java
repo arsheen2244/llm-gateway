@@ -14,7 +14,8 @@ import org.springframework.http.client.HttpComponentsClientHttpRequestFactory;
 import org.springframework.web.client.RestClient;
 
 /**
- * The embedding client, only when the cache and its semantic layer are both on.
+ * The embedding client, only when the cache and its semantic layer are both on (the semantic
+ * layer is off by default, design note 36).
  *
  * <p>It gets its own small HTTP client rather than the providers' one: the timeouts are very
  * different (half a second here, a minute for a provider), and a stuck embedding service must
@@ -22,7 +23,7 @@ import org.springframework.web.client.RestClient;
  * as the providers (design note 16).
  */
 @Configuration
-@ConditionalOnExpression("${gateway.cache.enabled:true} and ${gateway.cache.semantic-enabled:true}")
+@ConditionalOnExpression("${gateway.cache.enabled:true} and ${gateway.cache.semantic-enabled:false}")
 public class EmbeddingConfig {
 
     static final int MAX_CONNECTIONS = 50;

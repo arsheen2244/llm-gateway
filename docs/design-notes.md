@@ -1194,3 +1194,63 @@ FT.CREATE cache-semantic ON HASH PREFIX 1 cache:sem:
 instance and the unit tests.
 
 **Threshold:** `0.95` is a placeholder; note 36 chooses it from the labelled evaluation.
+
+## 36. Similarity threshold: none is safe, so the semantic layer ships off
+
+**Measured** on 2026-11-18 (GitHub Actions run 44356432771; files in
+`results/cache-threshold/`): 200 labelled pairs (`eval/cache-pairs.json`), 100 paraphrases that
+should hit and 100 look-alikes that must not, embedded with `BAAI/bge-small-en-v1.5` through
+the same TEI service and text normalization as the gateway.
+
+**About the labels:** Claude drafted them. The owner delegated the review to Claude, which
+re-read every pair, reworded three ambiguous paraphrases and flipped no labels. They are one
+careful pass, not an independent human review.
+
+| Threshold | Hit rate (paraphrases served) | False-hit rate (wrong answers served) |
+|---|---|---|
+| 0.80 | 98% | 77% |
+| 0.85 | 92% | 58% |
+| 0.90 | 72% | 30% |
+| 0.93 | 37% | 16% |
+| 0.95 | 12% | 9% |
+| 0.97 | 4% | 6% |
+| 0.99 | 0% | 5% |
+
+(Every threshold from 0.70 to 0.99 is in `results/cache-threshold/threshold-sweep.md`, with a plot.)
+
+**No threshold works.** A cache that serves a wrong answer is worse than no cache, so the
+target was a false-hit rate near zero. The look-alikes and the paraphrases overlap completely:
+
+- **Direction swaps score higher than any paraphrase.** "Convert 5 miles to kilometers" vs
+  "…5 kilometers to miles" is **0.992**; the scp upload vs download pair is **0.999**; Tokyo/London
+  time, string↔integer, Celsius↔Fahrenheit and JSON↔XML are all ≥ 0.989. The model reads which
+  words appear, barely their order.
+- **Other look-alikes reach the paraphrase range:** a different language (reverse a list in
+  Python vs JavaScript, 0.955), a different number (split $120 among 4 vs 5 people, 0.954), a
+  different word that flips the answer (daylight saving *start* vs *end*, 0.951), negation
+  (median 0.912).
+- **Real paraphrases often score lower:** "How do I create a virtual environment in Python?"
+  vs "What's the command to set up a Python venv?" is 0.752; typos ("hw do i learn pythn fast")
+  0.805. The paraphrase median is about 0.92, which is also where negation pairs sit.
+
+**Decision (owner's choice): the semantic layer stays in the code, switched off by default**
+(`gateway.cache.semantic-enabled: false`). The exact layer (note 33) runs as before. The
+embedding service moves to a Compose profile (`--profile semantic`) so the default stack
+doesn't run a model nothing uses; CI still starts it, checks it, and runs the evaluation
+pipeline. `similarity-threshold` stays at 0.95 only so the setting has a value; at 0.95 this
+evaluation served 9 wrong answers for every 12 paraphrases.
+
+*Rejected for now:*
+- **A reranker** (a cross-encoder such as `bge-reranker-base` reading both prompts together,
+  which does notice order and negation) as a second check on each candidate. Promising, but a
+  second ~1 GB model, added latency on every miss, and a new labelled set would be needed to
+  measure it fairly, since these 200 pairs were used to find the problem.
+- **Rule-based guards** (numbers must match, negation words must match, same words in a
+  different order means no match). Cheap, but written against exactly these look-alikes, so the
+  same set can't measure them honestly.
+- **A larger embedding model.** Still one vector per prompt, built the same way; nothing here
+  suggests it would separate "A to B" from "B to A".
+
+**Limits of this evaluation:** pairs are scored on their own (in the gateway the nearest of
+all cached prompts in the scope wins, so more entries mean more chances of a false hit); 200
+English, single-sentence prompts; one model.

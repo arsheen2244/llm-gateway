@@ -14,9 +14,10 @@ import org.springframework.validation.annotation.Validated;
  * @param ttl                 how long an answer stays cached
  * @param maxTemperature      only requests that explicitly set a temperature at or below this
  *                            are cached: higher temperatures ask for varied answers
- * @param semanticEnabled     turn the semantic (meaning-based) layer on or off
- * @param similarityThreshold cosine similarity needed for a semantic hit. Placeholder until
- *                            the evaluation chooses it (note 36)
+ * @param semanticEnabled     turn the semantic (meaning-based) layer on. Off by default: the
+ *                            evaluation found no threshold that keeps wrong answers out (note 36)
+ * @param similarityThreshold cosine similarity needed for a semantic hit, when the layer is on.
+ *                            No value was safe in the evaluation (note 36)
  */
 @Validated
 @ConfigurationProperties(prefix = "gateway.cache")
@@ -25,7 +26,7 @@ public record CacheProperties(
         @DefaultValue("in-memory") Store store,
         @DefaultValue("1h") Duration ttl,
         @DefaultValue("0.3") double maxTemperature,
-        @DefaultValue("true") boolean semanticEnabled,
+        @DefaultValue("false") boolean semanticEnabled,
         @DefaultValue("0.95") double similarityThreshold) {
 
     public enum Store { IN_MEMORY, REDIS }

@@ -93,6 +93,10 @@ gateway:
     store: in-memory          # 'redis' to share one cache across instances
     ttl: 1h
     max-temperature: 0.3      # only requests that explicitly set temperature <= this
+    # Meaning-based matching. Off: in the evaluation no threshold kept wrong answers out
+    # (design note 36, results/cache-threshold/).
+    semantic-enabled: false
+    similarity-threshold: 0.95
     embedding:                # local text-embeddings-inference service (design note 34)
       url: ${GATEWAY_CACHE_EMBEDDING_URL:http://localhost:8082}
       timeout: 500ms

@@ -27,7 +27,9 @@ x-gateway: &gateway
     GATEWAY_RATE_LIMIT_INSTANCES: "3"
     # One cache shared by all instances (design note 33).
     GATEWAY_CACHE_STORE: redis
-    # Local embedding model for the semantic cache layer (design note 34).
+    # The semantic cache layer is off by default (design note 36). To try it:
+    #   GATEWAY_CACHE_SEMANTIC=true docker compose --profile semantic up
+    GATEWAY_CACHE_SEMANTIC_ENABLED: ${GATEWAY_CACHE_SEMANTIC:-false}
     GATEWAY_CACHE_EMBEDDING_URL: http://embeddings:80
     # Three JVMs on one machine: keep each heap modest.
     JAVA_TOOL_OPTIONS: -Xmx384m
@@ -37,9 +39,6 @@ x-gateway: &gateway
     redis:
       condition: service_healthy
     mock-provider:
-      condition: service_started
-    # Not "healthy": while the model loads, the cache just skips its semantic layer.
-    embeddings:
       condition: service_started
 
 services:
@@ -68,11 +67,14 @@ services:
       retries: 15
 
   # Hugging Face text-embeddings-inference on CPU with a small English model (384 dimensions).
+  # Only for the (off by default) semantic cache layer and its evaluation, so it starts only
+  # with --profile semantic or when named: docker compose up -d embeddings.
   # Runs locally, so tests and benchmarks cost nothing. The model (~130 MB) is downloaded on
   # first start and kept in a named volume.
   embeddings:
     image: ghcr.io/huggingface/text-embeddings-inference:cpu-1.8.1
     command: ["--model-id", "BAAI/bge-small-en-v1.5"]
+    profiles: ["semantic"]
     ports:
       - "8082:80"
     volumes:

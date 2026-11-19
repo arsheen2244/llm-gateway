@@ -19,7 +19,7 @@ jobs:
 
       # Only the embedding service is needed: the same image and model as the gateway uses.
       - name: Start embedding service
-        run: docker compose up -d embeddings
+        run: docker compose --profile semantic up -d embeddings
 
       - uses: actions/setup-python@v5
         with:
