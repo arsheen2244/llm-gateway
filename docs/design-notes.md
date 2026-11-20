@@ -1295,3 +1295,63 @@ buffer and returns (note 38).
   the provider may have billed part of it. (The rate limiter instead keeps its estimate in that
   case, note 19: for limits, over-counting is the safe side; for billing, an invented number
   is not.)
+
+## 38. Usage events to Kafka: a bounded memory buffer when Kafka is down
+
+**The rule from the brief:** sending usage must never slow or fail a request. **The owner's
+choice for Kafka outages:** keep unsent events in a bounded memory buffer and send them when
+Kafka is back; lose them only when the buffer fills or the instance dies, and count every loss.
+
+**How (`KafkaUsageSink`):**
+- `publish()` only offers the event to an `ArrayBlockingQueue` (100,000 events by default)
+  and returns. A request never touches the Kafka client. Each queued event is a small object
+  (a few hundred bytes, an estimate, not measured), so a full queue plus the 32 MB producer
+  buffer stays well inside the 384 MB heap each Compose instance has.
+- One background thread takes events from the queue and calls `producer.send()`. That call can
+  block (no metadata yet, producer buffer full) for up to `max.block.ms` = 10 s; only this thread
+  ever waits.
+- A send that fails with a *retriable* error (timeout, broker unavailable) goes back into the
+  queue and is sent again later. A *non-retriable* one (e.g. record too large) is dropped: sending
+  it again would fail forever.
+- Every loss increments `dropped()`, and is logged (the first, then every 1,000th). Step 6 turns
+  it into the `usage_events_dropped_total` metric.
+
+**Producer settings:** `acks=all` and idempotence on (once acknowledged, an event is durable,
+and the producer's own retries never write it twice); `linger.ms=5` and lz4 compression (small
+batches); a 32 MB producer buffer; `delivery.timeout.ms` 2 minutes, after which the send fails
+and the event goes back into the queue.
+
+**Duplicates are possible, on purpose.** A send that timed out may still have reached Kafka, and
+re-queueing it sends it again. The consumer stores each event ID once (note 39), so this costs
+nothing; a lost event, by contrast, could not be recovered. At-least-once delivery plus an
+idempotent consumer gives exactly-once *totals*.
+
+**Ordering:** events are keyed by client id, so one client's events share a partition. A
+re-queued event goes to the back of the queue, so order is not strict; nothing depends on it,
+since daily totals are sums.
+
+**Shutdown:** Spring closes the sink after the web server has stopped taking requests (beans are
+destroyed after the server's lifecycle stops). `close()` sends what is still queued for up to
+`shutdown-timeout` (5 s), closes the producer, and counts anything left as dropped.
+
+**Topic:** `usage-events`, created by the broker on first use with 3 partitions
+(`KAFKA_NUM_PARTITIONS` in Compose), enough for up to 3 consumers. A real deployment would create
+it explicitly with a replication factor of 3; Compose has one broker.
+
+**Options considered (the owner chose the first):**
+
+| Option | Kafka down for a while | Instance crash | Cost on the request path |
+|---|---|---|---|
+| **Memory buffer** (chosen) | Kept, up to the buffer size; then dropped and counted | Queued events lost | One queue offer |
+| Outbox table in PostgreSQL | Kept | Kept | A database write per request; PostgreSQL becomes a dependency of serving |
+| Drop | Lost and counted | Lost | One failed offer |
+
+**What this means in practice:** short outages lose nothing; an outage long enough to fill
+100,000 events per instance, or a crash, under-counts usage. Billing-grade accounting would
+need the outbox (or a disk spool), at the cost above.
+
+**Tests:** `KafkaUsageSinkTest` (Kafka's `MockProducer`: retry after a timeout, drop on a
+permanent error, full queue never blocks, shutdown); `KafkaUsageSinkBrokerTest` (a real broker
+in Testcontainers is paused: 200 events are published with no call taking 50 ms or more, and
+all of them arrive after it is unpaused); `KafkaDownIntegrationTest` (the whole gateway with no
+Kafka at all: requests succeed as usual).
