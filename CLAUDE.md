@@ -31,9 +31,11 @@ Compose, k6, GitHub Actions.
 
 ```
 gateway/         the gateway app (api, pipeline, routing, provider adapters, streaming, observability)
+usage-consumer/  writes usage events from Kafka to PostgreSQL
 mock-provider/   fake provider speaking OpenAI and Anthropic formats; all tests use it
 load-test/       k6 scripts
-scripts/         smoke test
+contracts/       usage-event.json, the event format both sides are tested against
+scripts/         smoke test, usage check
 docs/            design-notes.md
 ```
 

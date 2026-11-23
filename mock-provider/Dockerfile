@@ -8,6 +8,7 @@ WORKDIR /src
 COPY pom.xml .
 COPY mock-provider/pom.xml mock-provider/
 COPY gateway/pom.xml gateway/
+COPY usage-consumer/pom.xml usage-consumer/
 COPY mock-provider/src mock-provider/src
 RUN --mount=type=cache,target=/root/.m2 \
     mvn -B -q -pl mock-provider package -DskipTests

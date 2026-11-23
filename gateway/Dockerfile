@@ -8,6 +8,7 @@ WORKDIR /src
 COPY pom.xml .
 COPY mock-provider/pom.xml mock-provider/
 COPY gateway/pom.xml gateway/
+COPY usage-consumer/pom.xml usage-consumer/
 COPY mock-provider/src mock-provider/src
 COPY gateway/src gateway/src
 # The cache mount keeps downloaded dependencies between builds.

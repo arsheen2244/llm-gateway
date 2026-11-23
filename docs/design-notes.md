@@ -1263,7 +1263,7 @@ refusals, provider failures, clients leaving mid-stream. Each request produces e
 `UsageEvent`, published after the request is done to a `UsageSink`. Step 1 ships a sink that
 only logs at DEBUG; step 2 replaces it with Kafka (note 38).
 
-**What an event holds:** event ID (a random UUID), client id, model as requested, provider,
+**What an event holds:** event ID (a random UUID), client id, model as requested, provider, the model that provider was sent (added in note 39),
 prompt and completion tokens, latency, cache outcome (`X-Cache`, or `none` if the request ended
 before the cache ran), status (`SUCCESS`, `RATE_LIMITED`, `PROVIDER_ERROR`,
 `CLIENT_DISCONNECTED`, `ERROR`), whether it was a stream, and when it finished.
@@ -1355,3 +1355,80 @@ permanent error, full queue never blocks, shutdown); `KafkaUsageSinkBrokerTest` 
 in Testcontainers is paused: 200 events are published with no call taking 50 ms or more, and
 all of them arrive after it is unpaused); `KafkaDownIntegrationTest` (the whole gateway with no
 Kafka at all: requests succeed as usual).
+
+## 39. The usage consumer: at-least-once delivery, exactly-once totals
+
+**What it is:** `usage-consumer`, a separate service (the owner's choice). It scales and restarts
+independently, and a slow database or a crashed consumer can't touch request serving.
+*Rejected:* consuming inside each gateway; fewer services, but accounting would share CPU with
+requests, and stopping one means stopping the other.
+
+**Tables** (Flyway, `V1__usage.sql`): `usage_events` (one row per request, `event_id` is the
+primary key), `usage_daily` (totals per client and UTC day), `model_prices`.
+
+**Exactly-once totals.** Kafka may deliver an event more than once: the gateway re-sends after a
+timeout (note 38), and the consumer re-reads whatever it had not committed when it crashed. So,
+per event, in **one transaction**:
+1. `INSERT INTO usage_events ... ON CONFLICT (event_id) DO NOTHING`;
+2. only if that added a row, add the event to `usage_daily`.
+
+The Kafka offset is committed **after** the database commit (`ack-mode: record`):
+
+| Crash happens | What is left | After the restart |
+|---|---|---|
+| before the database commit | nothing (rolled back) | redelivered, recorded |
+| after the database commit, before the offset commit | recorded | redelivered, the insert conflicts, ignored |
+| after the offset commit | recorded | not redelivered |
+
+Two consumers holding the same event at once (a slow one that lost its partition) are safe too:
+the second insert waits for the first transaction, then conflicts.
+*Rejected:* committing the offset first (a crash loses the event); Kafka transactions (they cover
+Kafka topics, not a write to PostgreSQL); computing totals on every read with `SUM` over events
+(simplest, and always right, but a billing read would get slower as events pile up).
+
+**Errors:**
+- *PostgreSQL down, hanging or misconfigured:* the same event is tried again, every second, for
+  ever. Skipping it would lose it; waiting only adds delay, because Kafka keeps the events behind
+  it. A 10 s socket timeout turns a hang into an error that can be retried.
+- *The event itself is bad* (not a valid event, or PostgreSQL rejects its values): retrying can't
+  help and would block the partition for ever, so it goes to `usage-events-dlt` unchanged and is
+  logged. If that send fails, the event is tried again, not skipped. Example: a client may put a
+  NUL character in the model name, which PostgreSQL cannot store. Retrying that would let one
+  client stop accounting for everyone on the partition.
+
+**Cost** is worked out here, in exact decimals (`numeric`, `BigDecimal`), from the price in force
+when the event happened (`effective_from`), so re-reading old events after a price change gives the
+old price. Storing the cost on the event's row means later price changes don't rewrite history.
+- **Priced by provider and upstream model**, not the model the client asked for. After a failover
+  the provider may be sent (and bill) another model (note 25). Step 1's event recorded only the
+  requested model, which would have priced those requests wrongly; `upstreamModel` was added.
+- **No price known:** `cost_usd` is NULL and the day's `unpriced_requests` goes up. Never a silent $0.
+- **Cache hits** cost 0, and their tokens are counted in separate columns, so
+  `prompt_tokens` and `completion_tokens` are what providers processed.
+- Only made-up prices for the mock models are included (profile `local`). Real prices change and
+  must be checked against the provider, so none are committed; until they are added, real models
+  show up as unpriced.
+
+**The event format** is `contracts/usage-event.json`. The gateway tests that it writes exactly that,
+and the consumer that it reads it. Unknown fields are ignored, so the gateway can add one first.
+*Rejected:* a shared Java module (both services would have to be rebuilt together) and a schema
+registry (one more service, for one event type).
+
+**Kafka settings that matter:** `auto-offset-reset: earliest` (the default, `latest`, skips whatever
+was sent before the consumer first ran); 3 listener threads, one per partition.
+
+**Limitations:**
+- Kafka keeps events for 7 days by default; a consumer stopped for longer would lose some.
+- One transaction per event is simple, but one client's events share a partition and so are
+  recorded one at a time. If the consumer falls behind, recording a batch per transaction is the
+  next step. Step 7's load test measures this.
+- Only the attempt that answered is counted. Failed attempts, cancelled hedges (note 30) and
+  streams that broke before their usage chunk may have been billed by the provider.
+- Dead letters are kept but not replayed automatically.
+- `usage_events` grows without bound; a real deployment would partition it by month.
+
+**Tests:** `UsageListenerParseTest` and `ModelPriceTest` (no Docker); `UsageStoreTest` (PostgreSQL:
+redelivery, four threads recording the same events, rollback when the totals can't be updated,
+prices over time, UTC days); `UsageConsumerIntegrationTest` (Kafka and PostgreSQL: duplicates in
+random order, dead letters, PostgreSQL paused for 15 s); `scripts/check-usage.sh` (in CI, the Compose
+stack: 30 requests through nginx become exactly 30 priced events, and the totals match).

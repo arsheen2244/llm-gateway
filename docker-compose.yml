@@ -1,5 +1,5 @@
 # Three gateway instances behind nginx, sharing one Redis (rate limits, cache), plus the mock,
-# Kafka for usage events, and a local embedding service for the semantic cache.
+# Kafka, the usage consumer and PostgreSQL for usage accounting, and a local embedding service for the semantic cache.
 #   docker compose up --build
 # Entry point (nginx): http://localhost:8080      Mock (direct): http://localhost:8081
 # Embeddings (direct): http://localhost:8082
@@ -98,6 +98,41 @@ services:
       timeout: 10s
       retries: 20
 
+  # Writes usage events from Kafka to PostgreSQL (design note 39).
+  usage-consumer:
+    build:
+      context: .
+      dockerfile: usage-consumer/Dockerfile
+    image: llm-gateway/usage-consumer:local
+    environment:
+      SPRING_PROFILES_ACTIVE: local   # made-up prices for the mock models
+      KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+      USAGE_DB_URL: jdbc:postgresql://postgres:5432/usage
+      USAGE_DB_USER: usage
+      USAGE_DB_PASSWORD: ${USAGE_DB_PASSWORD:-local-only}
+      JAVA_TOOL_OPTIONS: -Xmx256m
+    depends_on:
+      kafka:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_DB: usage
+      POSTGRES_USER: usage
+      # Not a secret: the database is reachable only inside the Compose network. Set
+      # USAGE_DB_PASSWORD anywhere else.
+      POSTGRES_PASSWORD: ${USAGE_DB_PASSWORD:-local-only}
+    volumes:
+      - usage-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -h localhost -U usage -d usage"]
+      interval: 2s
+      timeout: 2s
+      retries: 30
+
   # Hugging Face text-embeddings-inference on CPU with a small English model (384 dimensions).
   # Only for the (off by default) semantic cache layer and its evaluation, so it starts only
   # with --profile semantic or when named: docker compose up -d embeddings.
@@ -129,4 +164,5 @@ services:
       MOCK_MID_STREAM_FAILURE_RATE: ${MOCK_MID_STREAM_FAILURE_RATE:-0}
 
 volumes:
+  usage-data:
   embedding-models:

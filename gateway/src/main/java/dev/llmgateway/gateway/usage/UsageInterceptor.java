@@ -97,6 +97,7 @@ public class UsageInterceptor implements ChatInterceptor, Ordered {
                     context.client().id(),
                     context.request().model(),
                     context.trace().provider(),
+                    context.trace().upstreamModel(),
                     usage == null ? 0 : usage.promptTokens(),
                     usage == null ? 0 : usage.completionTokens(),
                     end.toEpochMilli() - start.toEpochMilli(),

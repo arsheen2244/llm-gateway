@@ -145,7 +145,7 @@ class KafkaUsageSinkTest {
     }
 
     static UsageEvent event(String clientId) {
-        return new UsageEvent(UUID.randomUUID().toString(), clientId, "mock-gpt", "mock-openai", 10, 20, 42,
+        return new UsageEvent(UUID.randomUUID().toString(), clientId, "mock-gpt", "mock-openai", "mock-gpt", 10, 20, 42,
                 "miss", UsageStatus.SUCCESS, false, Instant.parse("2026-11-20T10:15:30.123Z"));
     }
 

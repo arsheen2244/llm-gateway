@@ -44,6 +44,7 @@ class UsageIntegrationTest extends GatewayIntegrationTest {
         assertThat(event.clientId()).isEqualTo("test-client");
         assertThat(event.model()).isEqualTo("mock-gpt");
         assertThat(event.provider()).isEqualTo("mock-openai");
+        assertThat(event.upstreamModel()).isEqualTo("mock-gpt");
         assertThat(event.status()).isEqualTo(UsageStatus.SUCCESS);
         assertThat(event.promptTokens())
                 .isEqualTo(json.readTree(response.body()).at("/usage/prompt_tokens").asInt())
@@ -76,6 +77,7 @@ class UsageIntegrationTest extends GatewayIntegrationTest {
         assertThat(sink.events.get(0).provider()).isEqualTo("mock-openai");
         assertThat(sink.events.get(1).cache()).isEqualTo("exact");
         assertThat(sink.events.get(1).provider()).isNull();
+        assertThat(sink.events.get(1).upstreamModel()).isNull();
         assertThat(sink.events).extracting(UsageEvent::eventId).doesNotHaveDuplicates();
     }
 }

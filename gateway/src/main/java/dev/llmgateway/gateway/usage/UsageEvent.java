@@ -15,6 +15,9 @@ import java.time.Instant;
  * @param model            the model the client asked for
  * @param provider         the provider that answered (or the last one tried); null if none
  *                         was called (rate-limited, served from the cache)
+ * @param upstreamModel    the model name sent to that provider, which is what it bills; null if
+ *                         none was called. Differs from {@code model} after a failover that
+ *                         maps the model to another name (design note 25)
  * @param promptTokens     as reported by the provider (or the cached answer); 0 if unknown
  * @param completionTokens as above
  * @param latencyMs        time spent in the pipeline, from admission to the last byte
@@ -29,6 +32,7 @@ public record UsageEvent(
         String clientId,
         String model,
         String provider,
+        String upstreamModel,
         int promptTokens,
         int completionTokens,
         long latencyMs,

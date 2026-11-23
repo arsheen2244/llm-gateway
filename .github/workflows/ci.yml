@@ -51,13 +51,14 @@ jobs:
                }' */target/surefire-reports/*.txt | head -n 20
           echo "Failing tests in total: $(grep -h -c -E '<<< (FAILURE|ERROR)!' */target/surefire-reports/*.txt | paste -sd+ | bc)"
 
-      # Also public: did the Docker-only (Redis) tests run, or were they skipped? Plus the
-      # resilience tests, so their counts are visible without signing in.
-      - name: Report Redis and resilience test counts
+      # Also public: did the Docker-only (Redis, Kafka, PostgreSQL) tests run, or were they
+      # skipped? Plus the resilience tests, so their counts are visible without signing in.
+      - name: Report Docker-only and resilience test counts
         if: always()
         run: |
           reports=gateway/target/surefire-reports
-          for f in "$reports"/*Redis*.txt "$reports"/*TwoGateway*.txt "$reports"/*resilience*.txt; do
+          for f in "$reports"/*Redis*.txt "$reports"/*TwoGateway*.txt "$reports"/*resilience*.txt \
+              "$reports"/*Broker*.txt usage-consumer/target/surefire-reports/*.txt; do
             [ -f "$f" ] || continue
             echo "::notice title=$(basename "$f" .txt)::$(grep -m1 'Tests run' "$f")"
           done
@@ -78,6 +79,10 @@ jobs:
 
       - name: Smoke test through the gateway
         run: bash scripts/smoke-test.sh http://localhost:8080
+
+      # Requests through nginx end up in PostgreSQL exactly once (design note 39).
+      - name: Usage reaches PostgreSQL
+        run: bash scripts/check-usage.sh http://localhost:8080
 
       # The model downloads on first start, so allow a few minutes.
       - name: Embedding service answers

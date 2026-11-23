@@ -1,0 +1,4 @@
+# Profile for Docker Compose: also loads made-up prices for the mock models.
+spring:
+  flyway:
+    locations: classpath:db/migration,classpath:db/demo

@@ -44,7 +44,7 @@ class UsageInterceptorTest {
     @Test
     void successfulCallRecordsTokensProviderCacheAndLatency() {
         ChatCompletionResponse response = interceptor.complete(context(false), provider(ctx -> {
-            ctx.trace().attempting("openai");
+            ctx.trace().attempting("openai", "gpt-x-upstream");
             ctx.responseHeaders().set(CacheHeaders.X_CACHE, CacheHeaders.MISS);
             clock.advance(Duration.ofMillis(250));
             return response(Usage.of(12, 34));
@@ -55,6 +55,7 @@ class UsageInterceptorTest {
         assertThat(event.clientId()).isEqualTo("client-1");
         assertThat(event.model()).isEqualTo("gpt-x");
         assertThat(event.provider()).isEqualTo("openai");
+        assertThat(event.upstreamModel()).isEqualTo("gpt-x-upstream");
         assertThat(event.promptTokens()).isEqualTo(12);
         assertThat(event.completionTokens()).isEqualTo(34);
         assertThat(event.latencyMs()).isEqualTo(250);
@@ -107,7 +108,7 @@ class UsageInterceptorTest {
         ProviderException failure = ProviderException.of("anthropic", Reason.TIMEOUT, "slow", null);
 
         assertThatThrownBy(() -> interceptor.complete(context(false), provider(ctx -> {
-            ctx.trace().attempting("anthropic");
+            ctx.trace().attempting("anthropic", "gpt-x");
             throw failure;
         }))).isSameAs(failure);
 
