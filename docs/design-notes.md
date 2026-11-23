@@ -1263,8 +1263,8 @@ refusals, provider failures, clients leaving mid-stream. Each request produces e
 `UsageEvent`, published after the request is done to a `UsageSink`. Step 1 ships a sink that
 only logs at DEBUG; step 2 replaces it with Kafka (note 38).
 
-**What an event holds:** event ID (a random UUID), client id, model as requested, provider, the model that provider was sent (added in note 39),
-prompt and completion tokens, latency, cache outcome (`X-Cache`, or `none` if the request ended
+**What an event holds:** event ID (a random UUID), client id, model as requested, provider, the
+model that provider was sent (added in note 39), prompt and completion tokens, latency, cache outcome (`X-Cache`, or `none` if the request ended
 before the cache ran), status (`SUCCESS`, `RATE_LIMITED`, `PROVIDER_ERROR`,
 `CLIENT_DISCONNECTED`, `ERROR`), whether it was a stream, and when it finished.
 - **Client id, never the API key.** The key is a secret; the id already identifies the caller,

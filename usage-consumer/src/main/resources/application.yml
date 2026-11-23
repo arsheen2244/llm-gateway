@@ -11,7 +11,7 @@ spring:
     password: ${USAGE_DB_PASSWORD:}
     hikari:
       maximum-pool-size: 5
-      connection-timeout: 5s
+      connection-timeout: 5000  # ms (Hikari takes a plain number)
       data-source-properties:
         # Seconds. A PostgreSQL that hangs fails the write instead of blocking forever; the
         # event is then retried (design note 39).
