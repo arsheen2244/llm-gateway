@@ -35,6 +35,10 @@ x-gateway: &gateway
     # events wait in each instance's memory.
     GATEWAY_USAGE_SINK: kafka
     KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+    # GET /v1/usage reads daily totals with a role that can read only those (design note 40).
+    # The gateways don't wait for PostgreSQL either.
+    USAGE_DB_URL: jdbc:postgresql://postgres:5432/usage
+    USAGE_DB_READER_PASSWORD: ${USAGE_DB_READER_PASSWORD:-local-only-reader}
     # Three JVMs on one machine: keep each heap modest.
     JAVA_TOOL_OPTIONS: -Xmx384m
     OPENAI_API_KEY: ${OPENAI_API_KEY:-}
@@ -122,10 +126,12 @@ services:
     environment:
       POSTGRES_DB: usage
       POSTGRES_USER: usage
-      # Not a secret: the database is reachable only inside the Compose network. Set
-      # USAGE_DB_PASSWORD anywhere else.
+      # Not secrets: the database is reachable only inside the Compose network. Set
+      # USAGE_DB_PASSWORD and USAGE_DB_READER_PASSWORD anywhere else.
       POSTGRES_PASSWORD: ${USAGE_DB_PASSWORD:-local-only}
+      USAGE_DB_READER_PASSWORD: ${USAGE_DB_READER_PASSWORD:-local-only-reader}
     volumes:
+      - ./deploy/postgres/01-usage-reader.sh:/docker-entrypoint-initdb.d/01-usage-reader.sh:ro
       - usage-data:/var/lib/postgresql/data
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -h localhost -U usage -d usage"]

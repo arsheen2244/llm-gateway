@@ -39,6 +39,9 @@ public final class MockProviderServer {
             List<String> args = new ArrayList<>(List.of(
                     "--server.port=0",
                     "--spring.application.name=mock-provider-" + n,
+                    // The gateway's database library is on this classpath too; the mock has no database.
+                    "--spring.autoconfigure.exclude="
+                            + "org.springframework.boot.autoconfigure.jdbc.DataSourceAutoConfiguration",
                     "--mock.latency-ms=0",
                     "--mock.chunk-delay-ms=0",
                     "--mock.chunk-count=3"));

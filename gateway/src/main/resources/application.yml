@@ -112,6 +112,10 @@ gateway:
       queue-capacity: 100000    # events held in memory while Kafka is down; then dropped
       delivery-timeout: 2m      # one send's time limit before the event is queued again
       shutdown-timeout: 5s      # time to send what's still queued when stopping
+    report:                     # GET /v1/usage (design note 40); no URL: it answers 503
+      url: ${USAGE_DB_URL:}
+      username: ${USAGE_DB_READER_USER:usage_reader}
+      password: ${USAGE_DB_READER_PASSWORD:}
 
   # Per-client limits come from gateway.auth.clients (design notes 18-19).
   rate-limit:

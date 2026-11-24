@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Checks usage accounting end to end on a running Compose stack: sends a known number of
 # requests through nginx (so through all gateway instances) and waits until PostgreSQL holds
-# exactly that many events, priced, with no event counted twice or missing from the totals.
+# exactly that many events, priced, with no event counted twice or missing from the totals,
+# and that GET /v1/usage reports the same numbers, to that key only.
 #
 # Usage: scripts/check-usage.sh [gateway-url]     (default http://localhost:8080)
 set -euo pipefail
@@ -57,6 +58,22 @@ wrong=$(sql "SELECT count(*) FROM
   FULL JOIN usage_daily d USING (client_id, day)
   WHERE e.n IS DISTINCT FROM d.requests OR e.cost IS DISTINCT FROM d.cost_usd")
 [ "$wrong" = "0" ] || { echo "FAIL: daily totals differ from the events"; sql "SELECT * FROM usage_daily"; exit 1; }
+
+# GET /v1/usage must report exactly what the database holds for the calling key.
+field() { python3 -c 'import json,sys; print(json.load(sys.stdin)["total"][sys.argv[1]])' "$1"; }
+usage() { curl -s -S -f -H "Authorization: Bearer $1" "$GATEWAY/v1/usage"; }
+report=$(usage "$KEY")
+echo "$report"
+api=$(echo "$report" | field requests)
+db=$(sql "SELECT sum(requests) FROM usage_daily WHERE client_id = 'local-dev'")
+[ "$api" = "$db" ] || { echo "FAIL: /v1/usage says $api requests, the database $db"; exit 1; }
+cost=$(echo "$report" | field cost_usd)
+same=$(sql "SELECT sum(cost_usd) = $cost FROM usage_daily WHERE client_id = 'local-dev'")
+[ "$same" = "t" ] || { echo "FAIL: /v1/usage says cost $cost, the database differs"; exit 1; }
+other=$(usage drift-tokens-key | field requests)
+[ "$other" = "0" ] || { echo "FAIL: an unused key sees $other requests"; exit 1; }
+status=$(curl -s -o /dev/null -w '%{http_code}' "$GATEWAY/v1/usage")
+[ "$status" = "401" ] || { echo "FAIL: /v1/usage without a key answered $status"; exit 1; }
 
 sql "SELECT client_id, day, requests, prompt_tokens, completion_tokens, cost_usd FROM usage_daily"
 echo "Usage check passed."

@@ -1432,3 +1432,40 @@ redelivery, four threads recording the same events, rollback when the totals can
 prices over time, UTC days); `UsageConsumerIntegrationTest` (Kafka and PostgreSQL: duplicates in
 random order, dead letters, PostgreSQL paused for 15 s); `scripts/check-usage.sh` (in CI, the Compose
 stack: 30 requests through nginx become exactly 30 priced events, and the totals match).
+
+## 40. GET /v1/usage: the calling key's usage, from the daily totals
+
+**What it returns:** requests (by outcome), cache hits, tokens and cost for the calling key, in total
+and per UTC day. `from` and `to` are optional dates, both included; the default is the last 30
+days and the limit 366. Days without usage are left out.
+
+**Whose usage:** only the authenticated key decides. There is no client parameter, so one client
+can't read another's numbers by changing the request.
+
+**Reads `usage_daily`, not `usage_events`:** at most 366 small rows by primary key, however many
+requests there were.
+
+**Where the gateway's database use stops:**
+- The connection pool is private to `JdbcUsageReader`, and Spring Boot's own `DataSource` is
+  excluded. Nothing on the chat path can use the database, and the gateway starts without it.
+- The pool is small (3), connects on first use, waits at most 2 s for a connection and 5 s for an
+  answer. A slow or missing database gives `503 usage_unavailable`; chat is unaffected.
+- It connects as `usage_reader`, which may only `SELECT` from `usage_daily`. Compose creates the role
+  with the database, and the consumer's migration grants it that one table. A gateway that is
+  broken into can't change or delete billing records.
+- *Rejected:* putting the endpoint in the usage consumer. The gateway would then not need the
+  database at all, but the consumer would need its own copy of API-key checking.
+
+**Cost is decimal text** (`"cost_usd": "0.000966"`). JSON numbers are usually parsed as doubles, which
+can't hold most decimal fractions exactly. `unpriced_requests` above 0 says the cost is incomplete.
+
+**Not rate-limited:** it spends no tokens, and the tiny pool bounds the load on the database. A
+client calling it in a loop can make other clients' usage calls slow or 503, but not chat.
+
+**Freshness:** events arrive through Kafka, so a request normally shows up shortly after it ends, and
+later if Kafka or the consumer is behind. The report is not a live counter to enforce limits with.
+
+**Tests:** `UsageReportsTest` (dates, exact sums); `UsageEndpointIntegrationTest` (the JSON, another
+client's usage can't be read, 401, 400); `UsageDatabaseDownIntegrationTest` (no database: 503 and chat
+works); `JdbcUsageReaderTest` (PostgreSQL with the consumer's migrations: ranges, what the role may
+not do, a paused database); `check-usage.sh` (in CI: the API's numbers equal the database's).

@@ -6,17 +6,19 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.boot.context.properties.bind.DefaultValue;
 
 /**
- * Settings under {@code gateway.usage} (design notes 37-38).
+ * Settings under {@code gateway.usage} (design notes 37-40).
  *
  * @param enabled record a usage event for every request
  * @param sink    where events go: the log (default, for local runs and tests) or Kafka
  * @param kafka   Kafka settings, used when {@code sink} is {@code kafka}
+ * @param report  the database behind {@code GET /v1/usage}
  */
 @ConfigurationProperties(prefix = "gateway.usage")
 public record UsageProperties(
         @DefaultValue("true") boolean enabled,
         @DefaultValue("log") Sink sink,
-        @DefaultValue Kafka kafka) {
+        @DefaultValue Kafka kafka,
+        @DefaultValue Report report) {
 
     public enum Sink { LOG, KAFKA }
 
@@ -35,5 +37,15 @@ public record UsageProperties(
             @DefaultValue("100000") int queueCapacity,
             @DefaultValue("2m") Duration deliveryTimeout,
             @DefaultValue("5s") Duration shutdownTimeout) {
+    }
+
+    /**
+     * @param url      JDBC URL; blank means {@code GET /v1/usage} answers 503
+     * @param username a role that can only read {@code usage_daily}
+     */
+    public record Report(
+            @DefaultValue("") String url,
+            @DefaultValue("usage_reader") String username,
+            @DefaultValue("") String password) {
     }
 }

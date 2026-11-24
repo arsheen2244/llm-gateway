@@ -58,7 +58,7 @@ jobs:
         run: |
           reports=gateway/target/surefire-reports
           for f in "$reports"/*Redis*.txt "$reports"/*TwoGateway*.txt "$reports"/*resilience*.txt \
-              "$reports"/*Broker*.txt usage-consumer/target/surefire-reports/*.txt; do
+              "$reports"/*Broker*.txt "$reports"/*JdbcUsageReader*.txt usage-consumer/target/surefire-reports/*.txt; do
             [ -f "$f" ] || continue
             echo "::notice title=$(basename "$f" .txt)::$(grep -m1 'Tests run' "$f")"
           done

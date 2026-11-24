@@ -6,6 +6,8 @@ import dev.llmgateway.gateway.api.dto.ErrorResponse;
 import dev.llmgateway.gateway.provider.ProviderException;
 import dev.llmgateway.gateway.ratelimit.RateLimitExceededException;
 import dev.llmgateway.gateway.routing.UnknownModelException;
+import dev.llmgateway.gateway.usage.report.InvalidUsageRangeException;
+import dev.llmgateway.gateway.usage.report.UsageUnavailableException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.MediaType;
@@ -14,6 +16,7 @@ import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 
 /**
  * Turns exceptions into OpenAI-style error responses, so clients built for
@@ -67,6 +70,25 @@ public class ApiExceptionHandler {
     ResponseEntity<ErrorResponse> unreadableBody(HttpMessageNotReadableException e) {
         return toResponse(ApiError.of(400, "Request body is not valid JSON for this endpoint",
                 "invalid_request_error", "invalid_json"));
+    }
+
+    @ExceptionHandler(InvalidUsageRangeException.class)
+    ResponseEntity<ErrorResponse> invalidUsageRange(InvalidUsageRangeException e) {
+        return toResponse(ApiError.of(400, e.getMessage(), "invalid_request_error", "invalid_request"));
+    }
+
+    /** A query parameter of the wrong type, e.g. a date that isn't one. */
+    @ExceptionHandler(MethodArgumentTypeMismatchException.class)
+    ResponseEntity<ErrorResponse> invalidParameter(MethodArgumentTypeMismatchException e) {
+        return toResponse(ApiError.of(400, "Invalid value for '" + e.getName() + "'; dates look like 2026-11-24",
+                "invalid_request_error", "invalid_request"));
+    }
+
+    @ExceptionHandler(UsageUnavailableException.class)
+    ResponseEntity<ErrorResponse> usageUnavailable(UsageUnavailableException e) {
+        log.warn("Usage report unavailable: {}", e.getMessage(), e.getCause());
+        return toResponse(ApiError.of(503, "Usage data is not available right now", "server_error",
+                "usage_unavailable"));
     }
 
     /**
