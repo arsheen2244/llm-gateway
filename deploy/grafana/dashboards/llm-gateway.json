@@ -136,7 +136,7 @@
       "options": {
         "legend": {
           "showLegend": true,
-          "displayMode": "table",
+          "displayMode": "list",
           "placement": "bottom",
           "calcs": [
             "lastNotNull"
@@ -260,7 +260,7 @@
       "options": {
         "legend": {
           "showLegend": true,
-          "displayMode": "table",
+          "displayMode": "list",
           "placement": "bottom",
           "calcs": [
             "lastNotNull"
@@ -362,28 +362,11 @@
       "fieldConfig": {
         "defaults": {
           "color": {
-            "mode": "thresholds"
+            "mode": "palette-classic"
           },
           "custom": {
             "fillOpacity": 80,
             "lineWidth": 0
-          },
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "#0ca30c",
-                "value": null
-              },
-              {
-                "color": "#fab219",
-                "value": 1
-              },
-              {
-                "color": "#d03b3b",
-                "value": 2
-              }
-            ]
           },
           "mappings": [
             {
