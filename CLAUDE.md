@@ -35,7 +35,7 @@ usage-consumer/  writes usage events from Kafka to PostgreSQL
 mock-provider/   fake provider speaking OpenAI and Anthropic formats; all tests use it
 load-test/       k6 scripts
 contracts/       usage-event.json, the event format both sides are tested against
-scripts/         smoke test, usage check
+scripts/         smoke test, usage check, usage reconciliation
 docs/            design-notes.md
 ```
 

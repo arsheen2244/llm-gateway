@@ -84,6 +84,10 @@ jobs:
       - name: Usage reaches PostgreSQL
         run: bash scripts/check-usage.sh http://localhost:8080
 
+      # Known requests, the consumer killed partway, exact totals (design note 41).
+      - name: Usage reconciliation with the consumer killed
+        run: python3 scripts/reconcile_usage.py http://localhost:8080
+
       # The model downloads on first start, so allow a few minutes.
       - name: Embedding service answers
         run: bash scripts/check-embeddings.sh http://localhost:8082

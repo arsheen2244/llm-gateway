@@ -1469,3 +1469,32 @@ later if Kafka or the consumer is behind. The report is not a live counter to en
 client's usage can't be read, 401, 400); `UsageDatabaseDownIntegrationTest` (no database: 503 and chat
 works); `JdbcUsageReaderTest` (PostgreSQL with the consumer's migrations: ranges, what the role may
 not do, a paused database); `check-usage.sh` (in CI: the API's numbers equal the database's).
+
+## 41. Reconciliation: totals stay exact when the consumer is killed
+
+The claim in note 39 (nothing lost, nothing double-counted) is tested by killing the consumer, not
+by arguing. Two tests, because each shows something the other can't:
+
+**`ReconciliationTest`** (Kafka and PostgreSQL in containers, the consumer as its own JVM): 6,000
+events of every kind over 12 clients and 2 days, 600 of them sent twice, in random order. The
+consumer is killed with SIGKILL once a fifth is recorded, restarted, killed again past half, and
+restarted. Then every event ID must be stored exactly once, and all 11 totals of every client and
+day must equal sums the test makes itself, sharing no code with the store.
+- **SIGKILL, not a stop.** A normal stop lets Spring commit its offsets, which hides the case that
+  matters: recorded in PostgreSQL, not yet committed in Kafka.
+- **Run twice, with `ack-mode` `record` (production) and `batch`.** With `record` the gap between the
+  two commits is too short to hit on demand. `batch` commits after up to 500 events, and the test
+  asserts that at the kill fewer offsets were committed than events recorded, so redelivery
+  certainly happened. The totals are right because of the event-ID rule, not because the kill
+  was lucky. It also shows the rule doesn't depend on the ack mode.
+- **The kill must be partway:** the test fails if nothing or everything was recorded at that point.
+
+**`scripts/reconcile_usage.py`** (CI, the whole Compose stack): 900 real requests through nginx and the
+three gateways, half of them streams. The consumer is killed during the first 300, stays down for
+the next 300 (which must all succeed, with nothing recorded) and is started again for the last 300.
+What is expected comes from the clients' side: the number of answers, and the tokens reported in
+them. PostgreSQL and `GET /v1/usage` must match exactly, cost included.
+
+**What this does not show:** losses before Kafka. A gateway that crashes, or whose buffer overflows,
+loses the events it had not sent (note 38), and those requests are then missing from the totals.
+Kafka itself is never killed here; with one broker and no replication, losing its disk loses events.
