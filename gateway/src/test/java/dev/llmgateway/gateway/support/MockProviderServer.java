@@ -38,6 +38,7 @@ public final class MockProviderServer {
         ConfigurableApplicationContext context = INSTANCES.computeIfAbsent(name, n -> {
             List<String> args = new ArrayList<>(List.of(
                     "--server.port=0",
+                    "--management.server.port=-1",
                     "--spring.application.name=mock-provider-" + n,
                     // The gateway's database library is on this classpath too; the mock has no database.
                     "--spring.autoconfigure.exclude="

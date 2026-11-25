@@ -26,6 +26,16 @@ logging:
       # (empty) for plain-text logs while developing.
       console: ecs
 
+# Metrics only, on a separate port, so the public port (and nginx) never serves them
+# (design note 42).
+management:
+  server:
+    port: ${MANAGEMENT_PORT:9091}
+  endpoints:
+    web:
+      exposure:
+        include: prometheus
+
 gateway:
   # Provider instances. "type" picks the adapter (the protocol); the rest says
   # where this instance lives. API keys come only from environment variables.

@@ -3,6 +3,7 @@
 #   docker compose up --build
 # Entry point (nginx): http://localhost:8080      Mock (direct): http://localhost:8081
 # Embeddings (direct): http://localhost:8082
+# Grafana dashboard: http://localhost:3000      Prometheus: http://localhost:9090
 #
 # Rate-limit backend: RATE_LIMIT_BACKEND=redis (default, limits shared by all instances)
 # or RATE_LIMIT_BACKEND=in-memory (each instance counts on its own; the week-2 baseline).
@@ -138,6 +139,32 @@ services:
       interval: 2s
       timeout: 2s
       retries: 30
+
+  # Collects metrics from each gateway directly (not through nginx) on their metrics port,
+  # which is not published to the host (design note 42).
+  prometheus:
+    image: prom/prometheus:v3.5.0
+    ports:
+      - "127.0.0.1:9090:9090"
+    volumes:
+      - ./deploy/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+
+  grafana:
+    image: grafana/grafana:12.1.1
+    ports:
+      - "127.0.0.1:3000:3000"
+    environment:
+      # Anyone on this machine may look; changing anything needs the admin password.
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Viewer
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-local-only}
+      GF_USERS_DEFAULT_THEME: dark   # the dashboard's colors are chosen for it
+      GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH: /etc/grafana/dashboards/llm-gateway.json
+      GF_ANALYTICS_REPORTING_ENABLED: "false"
+      GF_ANALYTICS_CHECK_FOR_UPDATES: "false"
+    volumes:
+      - ./deploy/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./deploy/grafana/dashboards:/etc/grafana/dashboards:ro
 
   # Hugging Face text-embeddings-inference on CPU with a small English model (384 dimensions).
   # Only for the (off by default) semantic cache layer and its evaluation, so it starts only

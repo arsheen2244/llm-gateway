@@ -26,7 +26,8 @@ import org.springframework.test.context.DynamicPropertySource;
         // Many tests here send deliberate errors to the same mock; a real breaker would trip
         // part-way through the suite. Fault-injection tests configure a realistic one.
         "gateway.resilience.breaker.minimum-calls=1000000",
-        "gateway.resilience.backoff-base=10ms"})
+        "gateway.resilience.backoff-base=10ms",
+        "management.server.port=-1"}) // no metrics server, except in the test about it
 public abstract class GatewayIntegrationTest {
 
     @LocalServerPort

@@ -1313,8 +1313,8 @@ Kafka is back; lose them only when the buffer fills or the instance dies, and co
 - A send that fails with a *retriable* error (timeout, broker unavailable) goes back into the
   queue and is sent again later. A *non-retriable* one (e.g. record too large) is dropped: sending
   it again would fail forever.
-- Every loss increments `dropped()`, and is logged (the first, then every 1,000th). Step 6 turns
-  it into the `usage_events_dropped_total` metric.
+- Every loss increments `dropped()`, and is logged (the first, then every 1,000th). It is also the
+  `usage_events_dropped_total` metric (note 42).
 
 **Producer settings:** `acks=all` and idempotence on (once acknowledged, an event is durable,
 and the producer's own retries never write it twice); `linger.ms=5` and lz4 compression (small
@@ -1498,3 +1498,51 @@ them. PostgreSQL and `GET /v1/usage` must match exactly, cost included.
 **What this does not show:** losses before Kafka. A gateway that crashes, or whose buffer overflows,
 loses the events it had not sent (note 38), and those requests are then missing from the totals.
 Kafka itself is never killed here; with one broker and no replication, losing its disk loses events.
+
+## 42. Metrics: one request timer, three gauges, a provisioned dashboard
+
+**One request metric, from the usage event.** `gateway_requests_seconds` is recorded from the same
+`UsageEvent` that accounting uses (note 37), so request rate, latency, error rate, rejections and cache
+hit rate come from one place and can't disagree with the bill. Tags: `status`, `provider`, `cache`,
+`stream`.
+- **Why not Spring's `http_server_requests`?** It sees HTTP statuses. A stream that breaks after it
+  started is still a 200 there, and cache hits look like any other request. It is exposed too, but
+  the dashboard doesn't use it.
+- **The model is not a tag.** Clients choose it and routes end in `*`, so one client could create
+  endless time series. Tokens and cost per model are in PostgreSQL, where that is no problem.
+- **Histogram buckets, not percentiles.** Percentiles of three gateways can't be combined (an average of
+  three p95s is not a p95); bucket counts can be added, and the percentile taken from the sum. The
+  price is precision: a percentile is interpolated inside its bucket. Step 7's numbers come from k6,
+  which measures each request, not from here.
+- **Rejections and errors exist at 0 from the start.** A series that first appears at 5 shows no
+  increase to Prometheus. Other combinations appear on first use, so a new provider's first
+  request can be missing from a rate (never from the totals).
+
+**Also:** `gateway_breaker_state` per provider (0 closed, 1 half-open, 2 open, so the maximum over
+gateways is the worst), and `usage_events_sent/dropped_total` and `usage_events_queued` (note 38).
+
+**A port of its own (9091).** Metrics name providers and show traffic, so they don't belong on the public
+port, and nginx, which forwards everything, can't expose them. Only `/actuator/prometheus` is on.
+Compose publishes Prometheus and Grafana to this machine only.
+*Rejected:* the public port with a deny rule in nginx: one forgotten rule away from being public.
+
+**Health checks are not exposed.** Spring's would report a gateway "down" when Redis is, although it keeps
+serving (note 22), and a load balancer would then take all three out.
+
+**The dashboard** is a file (`deploy/grafana/dashboards/llm-gateway.json`), loaded at startup and not
+editable in the browser, so what is reviewed is what runs. Grafana's `$__rate_interval` keeps rates
+right at every zoom. Error rate leaves rejections out of both sides; cache hit rate leaves bypassed
+requests out, since the cache was never asked.
+
+**Tests:** `RequestMetricsTest` (1,000 model names create no new series), `MetricsEndpointIntegrationTest`
+(the endpoint of a real gateway: counts, breaker state, and 404 on the public port), and
+`scripts/check_metrics.py` (CI, Compose): the counts in Prometheus must equal what the clients saw, and
+every panel's query is read from the dashboard file and must return data. So a renamed metric
+breaks the build, not the dashboard.
+
+**Limitations:**
+- The usage consumer exposes no metrics yet, so the dashboard can't show how far behind it is
+  (`kafka-consumer-groups.sh --describe` can).
+- No alerts are defined.
+- With `gateway.usage.enabled=false` there are no request metrics either.
+- Latency is recorded in whole milliseconds, so most cache hits show as 0 or 1 ms.

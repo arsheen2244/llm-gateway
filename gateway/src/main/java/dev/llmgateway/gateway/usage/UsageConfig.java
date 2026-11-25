@@ -5,6 +5,9 @@ import java.util.HashMap;
 import java.util.Map;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import dev.llmgateway.gateway.observability.RequestMetrics;
+import io.micrometer.core.instrument.MeterRegistry;
+import io.micrometer.core.instrument.binder.MeterBinder;
 import org.apache.kafka.clients.producer.KafkaProducer;
 import org.apache.kafka.clients.producer.ProducerConfig;
 import org.apache.kafka.common.serialization.StringSerializer;
@@ -32,9 +35,26 @@ public class UsageConfig {
         };
     }
 
+    /** Each event goes to the sink and, whatever happens there, into the metrics (note 42). */
     @Bean
-    UsageInterceptor usageInterceptor(UsageSink sink) {
-        return new UsageInterceptor(sink, Clock.systemUTC());
+    UsageInterceptor usageInterceptor(UsageSink sink, MeterRegistry registry) {
+        RequestMetrics metrics = new RequestMetrics(registry);
+        return new UsageInterceptor(event -> {
+            try {
+                sink.publish(event);
+            } finally {
+                metrics.record(event);
+            }
+        }, Clock.systemUTC());
+    }
+
+    @Bean
+    MeterBinder usageSinkMetrics(UsageSink sink) {
+        return registry -> {
+            if (sink instanceof KafkaUsageSink kafkaSink) {
+                new UsageSinkMetrics(kafkaSink).bindTo(registry);
+            }
+        };
     }
 
     static KafkaUsageSink kafkaSink(UsageProperties.Kafka kafka, ObjectMapper json) {

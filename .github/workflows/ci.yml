@@ -96,6 +96,20 @@ jobs:
       - name: Threshold sweep runs (check only)
         run: python3 eval/sweep_threshold.py --check-only
 
+      # Last, because it opens a breaker: every dashboard panel shows data (design note 42).
+      - name: Metrics and dashboard
+        run: python3 scripts/check_metrics.py http://localhost:8080
+
+      - name: Screenshot of the dashboard
+        run: |
+          google-chrome --headless=new --no-sandbox --disable-gpu --hide-scrollbars --window-size=1600,1250 \
+            --timeout=20000 --virtual-time-budget=20000 --screenshot=dashboard.png \
+            "http://localhost:3000/d/llm-gateway/llm-gateway?kiosk&from=now-5m&to=now&refresh="
+      - uses: actions/upload-artifact@v4
+        with:
+          name: grafana-dashboard
+          path: dashboard.png
+
       - name: Show logs on failure
         if: failure()
         run: docker compose logs
