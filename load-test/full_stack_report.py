@@ -32,19 +32,23 @@ def sustained(run):
 def main():
     rates = sorted(int(p.stem.split("-")[1]) for p in DIR.glob("gateway-*.json"))
     lines = ["| Rate (req/s) | Achieved | Failed | Dropped | Added p50 | Added p95 | Added p99 "
-             "| Gateway p99 | Mock p99 | Consumer backlog at end | Caught up in |",
-             "|---|---|---|---|---|---|---|---|---|---|---|"]
+             "| Gateway p99 | Mock p99 | Consumer backlog at end | Caught up in | Consumer rate |",
+             "|---|---|---|---|---|---|---|---|---|---|---|---|"]
     best = None
     for rate in rates:
         g, d, c = load(f"gateway-{rate}.json"), load(f"direct-{rate}.json"), load(f"consumer-{rate}.json")
         if not sustained(d):
             lines.append(f"| {rate} | mock alone could not sustain this rate; not a gateway result |"
-                         + " |" * 9)
+                         + " |" * 10)
             continue
         ok = sustained(g)
         added = [f"{g[k] - d[k]:+.1f} ms" if ok else "n/a" for k in ("p50", "p95", "p99")]
         consumer = (f"{c['backlogAtEnd']} | {c['catchUpSeconds']} s" if c and c["caughtUp"]
                     else f"{c['backlogAtEnd'] if c else '?'} | not within 300 s")
+        # Events recorded per second while catching up: the consumer's own speed, once it has
+        # enough of a backlog to measure.
+        consumer += (f" | {c['backlogAtEnd'] / c['catchUpSeconds']:.0f}/s"
+                     if c and c["caughtUp"] and c["backlogAtEnd"] >= 2000 else " | -")
         lines.append(f"| {rate} | {g['achievedRate']:.1f} | {failed(g)} of {g['requests']} | {g['droppedIterations']} | "
                      + " | ".join(added) + f" | {g['p99']:.1f} ms | {d['p99']:.1f} ms | {consumer} |")
         if ok:

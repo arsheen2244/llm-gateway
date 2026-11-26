@@ -32,7 +32,9 @@ const RUN = `${Date.now()}`;
 
 const latency = new Trend('latency_ok', true); // successful requests only
 const errors = new Rate('errors');
-const answered = new Counter('answered'); // any HTTP status: these reached a gateway
+// Answers from a gateway (they carry its X-Request-Id), whatever the status: each of these
+// requests must show up in usage accounting. An error page from nginx itself has no such header.
+const answered = new Counter('answered');
 const failed = new Counter('failed');
 let logged = 0;
 
@@ -59,7 +61,7 @@ export default function () {
     messages: [{ role: 'user', content: `Load ${RUN} ${__VU} ${__ITER}` }],
   });
   const res = http.post(URL, body, { headers: HEADERS, timeout: '30s' });
-  if (res.status !== 0) {
+  if (res.headers['X-Request-Id']) {
     answered.add(1);
   }
   const ok = check(res, {

@@ -4,10 +4,10 @@
 # request that reached a gateway. Results go to $OUT_DIR (default load-test/results/full-stack).
 #
 # Usage (from the repo root, Compose stack up, k6 installed):
-#   bash load-test/full_stack.sh [rate ...]        default rates: 100 200 400 600 800 1000
+#   bash load-test/full_stack.sh [rate ...]        default rates: 100 200 400 600 800 1000 1200 1600 2000
 set -euo pipefail
 
-RATES=("${@:-100 200 400 600 800 1000}")
+RATES=("${@:-100 200 400 600 800 1000 1200 1600 2000}")
 read -r -a RATES <<< "${RATES[*]}"
 SECONDS_PER_PHASE="${SECONDS_PER_PHASE:-60}"
 OUT_DIR="${OUT_DIR:-load-test/results/full-stack}"
@@ -23,6 +23,11 @@ dropped() {
 echo "Warm-up (not recorded): 60 s at 100/s through each path"
 k6 run --quiet -e TARGET=direct -e RATE=100 -e SECONDS=60 -e OUT=/dev/null load-test/full-stack.js
 k6 run --quiet -e TARGET=gateway -e RATE=100 -e SECONDS=60 -e OUT=/dev/null load-test/full-stack.js
+# Start the series only once the consumer has recorded the warm-up (at most 120 s).
+for _ in $(seq 1 120); do
+  [ "$(sql "SELECT count(*) FROM usage_events WHERE recorded_at > now() - interval '3 seconds'")" = 0 ] && break
+  sleep 1
+done
 
 for rate in "${RATES[@]}"; do
   sleep 10

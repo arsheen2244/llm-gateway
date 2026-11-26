@@ -8,7 +8,7 @@ on:
     inputs:
       rates:
         description: Request rates to try, per second
-        default: "100 200 400 600 800 1000"
+        default: "100 200 400 600 800 1000 1200 1600 2000"
   # A "Run workflow" button only appears once this file is on main, so until then (and whenever
   # the measurement itself changes) a push also runs it.
   push:
@@ -17,11 +17,19 @@ on:
       - load-test/full_stack.sh
       - load-test/full_stack_report.py
       - .github/workflows/full-stack-load.yml
+      - nginx/nginx.conf
 
 jobs:
   measure:
+    # Three independent repetitions, each on its own runner: shared cloud machines vary (even
+    # the CPU model), so one run proves little. Each result is published with its machine.
+    name: run ${{ matrix.run }}
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    timeout-minutes: 75
+    strategy:
+      fail-fast: false
+      matrix:
+        run: [1, 2, 3]
     steps:
       - uses: actions/checkout@v4
 
@@ -46,7 +54,7 @@ jobs:
           bash scripts/check-usage.sh http://localhost:8080
 
       - name: Measure
-        run: bash load-test/full_stack.sh ${{ github.event.inputs.rates || '100 200 400 600 800 1000' }}
+        run: bash load-test/full_stack.sh ${{ github.event.inputs.rates || '100 200 400 600 800 1000 1200 1600 2000' }}
 
       - name: Report
         if: always()
@@ -56,7 +64,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: full-stack-load
+          name: full-stack-load-${{ matrix.run }}
           path: load-test/results/full-stack
 
       - name: Show logs on failure
