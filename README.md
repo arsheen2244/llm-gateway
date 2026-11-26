@@ -305,12 +305,12 @@ flowchart TB
     REQ -->|one usage event per request, async| ACC
     ACC ~~~ MET
 
-    classDef edge fill:#e0f2fe,stroke:#0369a1,color:#0c4a6e
+    classDef entry fill:#e0f2fe,stroke:#0369a1,color:#0c4a6e
     classDef core fill:#ede9fe,stroke:#6d28d9,color:#2e1065
     classDef store fill:#fee2e2,stroke:#b91c1c,color:#450a0a
     classDef usage fill:#dcfce7,stroke:#15803d,color:#052e16
     classDef metrics fill:#ffedd5,stroke:#c2410c,color:#431407
-    class C,N,F edge
+    class C,N,F entry
     class U,RL,CA,EX,PR core
     class Q,CO,UC usage
     class K,PG store
