@@ -127,6 +127,13 @@ gateway:
       username: ${USAGE_DB_READER_USER:usage_reader}
       password: ${USAGE_DB_READER_PASSWORD:}
 
+  # Load shedding (design note 45): past this many /v1/ requests in flight on one instance,
+  # new ones get an immediate 503 with Retry-After instead of piling up until the heap runs out.
+  overload:
+    enabled: true
+    max-in-flight: 1000
+    retry-after: 1s
+
   # Per-client limits come from gateway.auth.clients (design notes 18-19).
   rate-limit:
     enabled: true

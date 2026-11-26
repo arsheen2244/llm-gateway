@@ -1651,3 +1651,48 @@ usage consumer have `restart: unless-stopped` in Compose.
 **What this does not fix:** the crash still loses the events that gateway had not yet sent, and
 nothing counts them (the README's limitations say so). The cause, unlimited requests in flight,
 is note 45.
+
+## 45. Load shedding: a cap on requests in flight, and a fast 503 past it
+
+**Problem:** each request runs on its own virtual thread, and nothing limited how many were in
+flight. Past what the stack can serve, requests arrive faster than they finish, so the number in
+flight grows without limit until the heap runs out (note 44). Exiting and restarting turns that
+into a clean failure, but every request in flight on that gateway still fails, and its unsent
+usage events are lost.
+
+**Decision:** a servlet filter, `OverloadFilter`, admits at most `gateway.overload.max-in-flight`
+`/v1/` requests at once per instance. A request that finds no free slot gets an immediate `503`
+with `Retry-After: 1` and OpenAI's error format (`type: server_error`, `code: gateway_overloaded`).
+- **A semaphore with `tryAcquire()`, never waiting.** Waiting for a slot would just move the pile-up
+  into a queue. Answering at once tells the client to back off while the requests already admitted
+  keep their memory and finish at normal speed.
+- **Where it sits:** right after `RequestIdFilter` (a shed request still gets an ID and an access-log
+  line) and before authentication, so turning a request away costs almost nothing.
+- **A slot lasts the whole request**, released in `finally`. Streams are written on the request's
+  own thread, so a stream keeps its slot until it ends, which is right: an open stream holds
+  memory too.
+- **Shed requests are not billed.** They never reach the pipeline, so they create no usage event.
+  The load test counts them apart from answered requests, so the accounting check stays exact.
+- **Per instance, not shared.** Memory is per instance, so the limit is too; three gateways admit
+  three times as much. No Redis call on the way in.
+- **Metrics:** `gateway_requests_in_flight` (now), `gateway_requests_shed_total`, and
+  `gateway_requests_in_flight_at_arrival` (a summary whose `_max` is the peak over the last couple
+  of minutes, which a gauge scraped every few seconds would miss). The dashboard shows the first
+  two.
+
+**Rejected:**
+- *Tomcat's `server.tomcat.max-connections` or `accept-count`.* Connections past the limit wait in
+  the operating system's queue: the client sees slowness, not a clear answer, and there is no
+  metric. With nginx in front, the "connections" are nginx's pooled keep-alive connections, not
+  requests, so the number would mean little.
+- *Concurrency limits in nginx* (`limit_conn`). nginx doesn't know each gateway's heap, and a
+  restarted gateway would still get its full share at once.
+- *An adaptive limit* (like Netflix's concurrency-limits, which lowers the cap as latency rises).
+  Better for real providers whose speed varies, but harder to explain and test; a fixed cap,
+  measured, is enough to stop the heap from running out.
+- *Shedding by priority or per client.* Every client here has its own rate limit already; overload
+  is about this instance's memory, not about who is asking.
+
+**The value:** 1,000 per instance is a placeholder until the full-stack load test measures how many
+requests are in flight at the highest sustained rate and where the heap runs out. The measured value
+and how it was chosen will be recorded here.

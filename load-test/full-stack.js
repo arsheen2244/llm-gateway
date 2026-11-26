@@ -34,7 +34,10 @@ const latency = new Trend('latency_ok', true); // successful requests only
 const errors = new Rate('errors');
 // Answers from a gateway (they carry its X-Request-Id), whatever the status: each of these
 // requests must show up in usage accounting. An error page from nginx itself has no such header.
+// Requests shed by a full gateway (503 gateway_overloaded, design note 45) carry the header too,
+// but never reach the pipeline and are never billed, so they are counted apart.
 const answered = new Counter('answered');
+const shed = new Counter('shed');
 const failed = new Counter('failed');
 let logged = 0;
 
@@ -61,7 +64,9 @@ export default function () {
     messages: [{ role: 'user', content: `Load ${RUN} ${__VU} ${__ITER}` }],
   });
   const res = http.post(URL, body, { headers: HEADERS, timeout: '30s' });
-  if (res.headers['X-Request-Id']) {
+  if (res.status === 503 && (res.body || '').includes('"gateway_overloaded"')) {
+    shed.add(1);
+  } else if (res.headers['X-Request-Id']) {
     answered.add(1);
   }
   const ok = check(res, {
@@ -94,6 +99,7 @@ export function handleSummary(data) {
     requests: value(data, 'http_reqs', 'count'),
     achievedRate: value(data, 'http_reqs', 'rate'),
     answered: value(data, 'answered', 'count'),
+    shed: value(data, 'shed', 'count'),
     errorRate: value(data, 'errors', 'rate'),
     failed: value(data, 'failed', 'count'),
     droppedIterations: value(data, 'dropped_iterations', 'count'),
@@ -103,7 +109,7 @@ export function handleSummary(data) {
     p99: value(data, 'latency_ok', 'p(99)', NaN),
     max: value(data, 'latency_ok', 'max', NaN),
   };
-  const line = `${TARGET} at ${RATE}/s: ${result.requests} requests, failed ${result.failed}, `
+  const line = `${TARGET} at ${RATE}/s: ${result.requests} requests, failed ${result.failed} (shed ${result.shed}), `
     + `dropped ${result.droppedIterations}, p50 ${result.p50.toFixed(1)} ms, p95 ${result.p95.toFixed(1)} ms, `
     + `p99 ${result.p99.toFixed(1)} ms\n`;
   return { stdout: line, [__ENV.OUT || 'result.json']: JSON.stringify(result, null, 2) };

@@ -68,6 +68,18 @@ class MetricsEndpointIntegrationTest extends GatewayIntegrationTest {
     }
 
     @Test
+    void overloadMetricsAreExposed() throws Exception {
+        post("""
+                {"model":"mock-gpt","messages":[{"role":"user","content":"Overload %s"}]}"""
+                .formatted(UUID.randomUUID()));
+
+        assertThat(value("gateway_requests_in_flight")).isZero(); // nothing running between requests
+        assertThat(value("gateway_requests_shed_total")).isZero();
+        assertThat(value("gateway_requests_in_flight_at_arrival_count")).isGreaterThanOrEqualTo(1);
+        assertThat(scrape()).contains("gateway_requests_in_flight_at_arrival_max");
+    }
+
+    @Test
     void metricsAreNotServedOnThePublicPort() throws Exception {
         for (String path : List.of("/actuator/prometheus", "/actuator", "/actuator/health")) {
             assertThat(get(port, path).statusCode()).as(path).isEqualTo(404);
