@@ -20,13 +20,18 @@ def load(name):
     return json.loads(path.read_text(encoding="utf-8")) if path.exists() else None
 
 
+def failed(run):
+    """Failed requests; older results only have the rate."""
+    return run.get("failed", round(run["errorRate"] * run["requests"]))
+
+
 def sustained(run):
     return run["errorRate"] == 0 and run["droppedIterations"] == 0
 
 
 def main():
     rates = sorted(int(p.stem.split("-")[1]) for p in DIR.glob("gateway-*.json"))
-    lines = ["| Rate (req/s) | Achieved | Errors | Dropped | Added p50 | Added p95 | Added p99 "
+    lines = ["| Rate (req/s) | Achieved | Failed | Dropped | Added p50 | Added p95 | Added p99 "
              "| Gateway p99 | Mock p99 | Consumer backlog at end | Caught up in |",
              "|---|---|---|---|---|---|---|---|---|---|---|"]
     best = None
@@ -40,7 +45,7 @@ def main():
         added = [f"{g[k] - d[k]:+.1f} ms" if ok else "n/a" for k in ("p50", "p95", "p99")]
         consumer = (f"{c['backlogAtEnd']} | {c['catchUpSeconds']} s" if c and c["caughtUp"]
                     else f"{c['backlogAtEnd'] if c else '?'} | not within 300 s")
-        lines.append(f"| {rate} | {g['achievedRate']:.1f} | {g['errorRate'] * 100:.2f}% | {g['droppedIterations']} | "
+        lines.append(f"| {rate} | {g['achievedRate']:.1f} | {failed(g)} of {g['requests']} | {g['droppedIterations']} | "
                      + " | ".join(added) + f" | {g['p99']:.1f} ms | {d['p99']:.1f} ms | {consumer} |")
         if ok:
             best = rate

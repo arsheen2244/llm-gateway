@@ -33,6 +33,8 @@ const RUN = `${Date.now()}`;
 const latency = new Trend('latency_ok', true); // successful requests only
 const errors = new Rate('errors');
 const answered = new Counter('answered'); // any HTTP status: these reached a gateway
+const failed = new Counter('failed');
+let logged = 0;
 
 export const options = {
   scenarios: {
@@ -65,6 +67,13 @@ export default function () {
     'complete answer': (r) => (r.body || '').includes('"chat.completion"'),
   });
   errors.add(!ok);
+  if (!ok) {
+    failed.add(1);
+    if (logged < 3) { // say why, a few times per VU
+      logged++;
+      console.warn(`failed: status ${res.status} ${res.error || ''} ${(res.body || '').slice(0, 200)}`);
+    }
+  }
   if (ok) {
     latency.add(res.timings.duration);
   }
@@ -84,6 +93,7 @@ export function handleSummary(data) {
     achievedRate: value(data, 'http_reqs', 'rate'),
     answered: value(data, 'answered', 'count'),
     errorRate: value(data, 'errors', 'rate'),
+    failed: value(data, 'failed', 'count'),
     droppedIterations: value(data, 'dropped_iterations', 'count'),
     ok: value(data, 'latency_ok', 'count'),
     p50: value(data, 'latency_ok', 'med', NaN),
@@ -91,7 +101,7 @@ export function handleSummary(data) {
     p99: value(data, 'latency_ok', 'p(99)', NaN),
     max: value(data, 'latency_ok', 'max', NaN),
   };
-  const line = `${TARGET} at ${RATE}/s: ${result.requests} requests, errors ${(result.errorRate * 100).toFixed(2)}%, `
+  const line = `${TARGET} at ${RATE}/s: ${result.requests} requests, failed ${result.failed}, `
     + `dropped ${result.droppedIterations}, p50 ${result.p50.toFixed(1)} ms, p95 ${result.p95.toFixed(1)} ms, `
     + `p99 ${result.p99.toFixed(1)} ms\n`;
   return { stdout: line, [__ENV.OUT || 'result.json']: JSON.stringify(result, null, 2) };
