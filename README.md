@@ -47,7 +47,7 @@ mock provider.
 
 <table>
   <tr>
-    <td align="center" valign="top" width="25%"><h3>1,000 req/s</h3>sustained through the full stack, every feature on, 0 failed<br/><sub><a href="#full-stack-under-load-measured-2026-11-26">full-stack load test</a></sub></td>
+    <td align="center" valign="top" width="25%"><h3>0 crashes</h3>at up to 2,000 req/s on 6 runners: overload is shed as 503s instead of running the heap out<br/><sub><a href="#overload-with-load-shedding-measured-2026-11-26">overload test</a></sub></td>
     <td align="center" valign="top" width="25%"><h3>+3.3 ms</h3>median latency the full stack adds at 100 req/s<br/><sub><a href="#full-stack-under-load-measured-2026-11-26">full-stack load test</a></sub></td>
     <td align="center" valign="top" width="25%"><h3>900 / 900</h3>requests billed exactly after killing the usage consumer mid-run<br/><sub><a href="#measured-kill-the-consumer-count-everything-2026-11-25">reconciliation</a></sub></td>
     <td align="center" valign="top" width="25%"><h3>+0.0%</h3>rate-limit drift across 3 instances sharing Redis (vs +200% without)<br/><sub><a href="#measured-drift-shared-vs-per-instance-2026-11-17">drift test</a></sub></td>
@@ -84,7 +84,7 @@ shared by every instance. `429` with `Retry-After`.
 
 **🛡️ Resilience**<br/>
 Deadlines on every call, a circuit breaker per provider, retries with jittered backoff and a
-budget, ordered failover and hedged requests.
+budget, ordered failover, hedged requests, and load shedding past 500 requests in flight.
 
 </td>
     <td valign="top">
@@ -150,7 +150,8 @@ Prometheus and Grafana, in one `docker compose up`.
 - **Resilience:** first-byte, total and stream deadlines on every provider call; a circuit
   breaker per provider; retries with exponential backoff and full jitter, capped by a retry
   budget; failover along an ordered list of providers per model (streams only before their
-  first byte); and hedged requests for slow non-streaming calls
+  first byte); hedged requests for slow non-streaming calls; and **load shedding**: past 500
+  requests in flight, an instance answers `503` at once instead of running out of memory
 - **Response cache:** identical low-temperature requests from the same client are answered
   from Redis without calling a provider, also for streaming clients (replayed as SSE), with an
   `X-Cache` header and `Cache-Control: no-cache` to bypass it. A meaning-based (semantic) layer
@@ -162,7 +163,7 @@ Prometheus and Grafana, in one `docker compose up`.
   client. `GET /v1/usage` returns the calling key's usage and cost
 - **Metrics:** Prometheus metrics on a separate port, and a provisioned **Grafana dashboard**
   with request rate, latency percentiles, error rate, circuit-breaker state, rate-limit
-  rejections, cache hit rate and lost usage events
+  rejections, cache hit rate, lost usage events, and requests in flight and shed
 - Structured JSON logs with a request ID and client ID on every line
 - Docker Compose with **nginx in front of three gateway instances** sharing Redis, plus Kafka,
   PostgreSQL, the usage consumer, Prometheus and Grafana; k6 tests (latency overhead,
@@ -363,6 +364,7 @@ flowchart TB
 | Retry budget + circuit breaker | `resilience/` | During an outage, retries add a few percent instead of doubling load, and a dead provider stops being called |
 | Fail over only before the first byte | `ResilientExecutor` | Until a stream reaches the client it is just a request; after that, a clean error event is the honest answer |
 | Idle timeout, not total timeout | `HttpClientConfig` | A long healthy stream is fine; a stalled one is cut off (chosen by measurement) |
+| Shed load past a fixed cap | `OverloadFilter` | Past 500 requests in flight per instance, an immediate 503: overload becomes errors the client can retry, not a pile-up that runs the heap out |
 | Usage never blocks a request | `KafkaUsageSink` | A request only offers its event to a queue; Kafka being down costs memory, then counted losses, never latency |
 | At-least-once delivery, exactly-once totals | `UsageStore` | Redelivery is allowed anywhere; the event ID as primary key makes the second copy a no-op |
 | One request metric, from the usage event | `RequestMetrics` | Dashboard and bill can't disagree; histograms add up across instances, percentiles don't |
@@ -377,6 +379,7 @@ flowchart TB
 | Missing or unknown API key | `401 missing_api_key` / `invalid_api_key` |
 | Over the client's request or token limit | `429 rate_limit_exceeded` with `Retry-After` |
 | Estimate larger than the client's whole token limit | `429 request_too_large_for_limit`, no `Retry-After` |
+| The instance already has 500 requests in flight | `503 gateway_overloaded` with `Retry-After` |
 | Every provider for the model has an open circuit breaker | `503 provider_circuit_open` |
 | Unknown model | `404 model_not_found` |
 | Invalid request body | `400 invalid_request_error` |
@@ -498,6 +501,11 @@ estimate until reconciled. Method and caveats: design note 24.
 - **Hedging (non-streaming):** if no answer arrives within the recent p95 latency (at least
   300 ms), the request is sent again; the first success wins and the other call is cancelled.
   At most 5% of requests are hedged, and only while the breaker is closed.
+- **Load shedding:** each instance handles at most 500 `/v1/` requests at once
+  (`gateway.overload.max-in-flight`); past that, an immediate `503 gateway_overloaded` with
+  `Retry-After: 1`, before authentication. Without it, overload piled requests up until the heap
+  ran out. The value was chosen by measurement (design notes 44–45).
+- **Out of memory:** the JVM exits instead of running on with dead threads, and Compose restarts it.
 
 ### Measured (2026-11-17)
 
@@ -605,6 +613,8 @@ over-limit requests and failures that open the mock-anthropic breaker. Not a ben
   otherwise create endless time series.
 - `gateway_breaker_state` per provider (0 closed, 1 half-open, 2 open), and
   `usage_events_sent_total`, `usage_events_dropped_total`, `usage_events_queued`.
+- `gateway_requests_in_flight`, `gateway_requests_shed_total`, and
+  `gateway_requests_in_flight_at_arrival` (its `_max` is the recent peak), for load shedding.
 - Served on a separate port (9091), so nginx can't expose them. CI checks that Prometheus counted
   exactly the successes, rejections, failures and cache hits the clients saw, and that every
   panel's query returns data. Design note 42.
@@ -659,10 +669,11 @@ the full Compose stack and runs, against it: `scripts/smoke-test.sh`, `scripts/c
 
 | What | Result | Measured | Where | Reproduce |
 |---|---|---|---|---|
-| Full stack, every feature on: highest rate sustained | **1,000 req/s**, 0 failed of 60,000 (and of 60,001 in the repeat) | 2026-11-26 | GitHub Actions, 4 vCPUs, 2 runs | Actions → *Full-stack load test* → *Run workflow* |
+| Full stack, every feature on: highest rate sustained | **800–1,600 req/s** depending on the CPU (3 runners, load shedding on); 1,000 req/s on 2 runners before it | 2026-11-26 | GitHub Actions, 4 vCPUs | Actions → *Full-stack load test* → *Run workflow* |
+| Overload, up to 2,000 req/s | **0** gateways out of memory on 6 runners (5 out-of-memory exits on 2 of 3 runners without it); every failure a `503 gateway_overloaded` | 2026-11-26 | same, 6 runs | same |
 | Full stack: latency added at 100 req/s | p50 **+3.3 / +3.7 ms**, p95 +8.7 / +8.8 ms, p99 +12.9 / +13.7 ms | 2026-11-26 | same | same |
 | Full stack: latency added at 1,000 req/s | p50 **+15.2 / +15.3 ms**, p95 +53.7 / +55.5 ms, p99 +93.5 / +84.7 ms | 2026-11-26 | same | same |
-| Usage events lost at any rate | **0** (every answered request recorded once) | 2026-11-26 | same | same |
+| Usage events lost at any rate | **0** (every answered request recorded once, also in the 6 overload runs) | 2026-11-26 | same | same |
 | Consumer killed mid-run: totals | exact (900 of 900, tokens and cost) | 2026-11-25 | GitHub Actions | CI: *Usage reconciliation* step |
 | Gateway alone, before auth and rate limiting | p50 +1.09 ms, p95 +2.89 ms (non-streaming) | 2026-11-16 | laptop | `k6 run load-test/gateway-overhead.js` |
 | Rate-limit drift, shared Redis limiter | +0.0% (requests), −3.4% (tokens) | 2026-11-17 | GitHub Actions | Actions → *Rate-limit drift* |
@@ -673,6 +684,8 @@ the full Compose stack and runs, against it: `scripts/smoke-test.sh`, `scripts/c
 The rate-limit, resilience and cache rows are explained in their sections above.
 
 ### Full stack under load (measured 2026-11-26)
+
+Measured before load shedding was added; the next section has the runs with it.
 
 Everything on at once: nginx, three gateways, Redis rate limits and cache, usage events through
 Kafka into PostgreSQL, Prometheus and Grafana, against the mock answering after a fixed 100 ms.
@@ -704,7 +717,37 @@ the CPUs. Raw data: [results/full-stack](results/full-stack/README.md).
 - Run to run, p50 agrees within about 1 ms, the tail less so. Design note 43 has the method, the
   failed first attempts and what this does not show.
 
-**Reproduce:** Actions tab → *Full-stack load test* → *Run workflow* (rates are an input), or on
+### Overload, with load shedding (measured 2026-11-26)
+
+Past what the stack can serve, one gateway used to run out of heap and stay up half-dead: nginx kept
+sending it a third of the traffic, which failed, and usage events it had already handed to Kafka's
+client were lost without being counted (design note 44). Now each gateway sheds requests past 500
+in flight, and exits and restarts if it does run out. Same test, two workflow runs of three runners
+each: rates rising from 100 to 2,000/s
+([45851786625](https://github.com/arsheen2244/llm-gateway/actions/runs/45851786625)), and a cold
+start at 1,000 to 2,000/s
+([45851801559](https://github.com/arsheen2244/llm-gateway/actions/runs/45851801559)). Raw data:
+[results/overload](results/overload).
+
+| Runner (CPU) | Highest rate sustained | Added p50 / p99 at 1,000/s | Gateways out of memory | Failed requests that weren't shed |
+|---|---|---|---|---|
+| AMD EPYC 9V45 | 1,200/s | +7.0 / +58.3 ms | 0 | 0 |
+| AMD EPYC 7763 | 800/s (1,000/s: 7.0% shed) | not sustained | 0 | 0 |
+| Intel Xeon 6975P-C | 1,600/s | +3.9 / +27.3 ms | 0 | 0 |
+| 3 cold starts | none (1,000/s: 8,602–15,393 shed) | not sustained | 0 | 0 |
+
+- **No gateway ran out of memory in any of the six runs.** The same rates without shedding ran
+  gateways out of heap 5 times, on 2 of 3 runners.
+- **Every failure was a shed `503`:** no timeouts, no nginx errors, no dead instance.
+- **Accounting stayed exact:** in every run, events created = sent = in Kafka = in PostgreSQL.
+- **The cost:** a slow patch now shows up as 503s rather than as latency. The AMD EPYC 7763 runner
+  sustained 1,000/s twice before shedding; this time it shed 7% at 1,000/s. One run can't say
+  whether that patch would otherwise have passed or crashed a gateway.
+- **A cold start is still the weak point:** 1,000/s right after start-up was not sustained on any
+  runner. Design note 45 has the measurement behind the cap of 500 and what is still open.
+
+**Reproduce:** Actions tab → *Full-stack load test* → *Run workflow* (rates and the cap are
+inputs), or on
 any machine with Docker and k6:
 
 ```bash
@@ -786,10 +829,15 @@ smaller than the noise. That is why the headline table above uses a zero-latency
 - **Measured only against a mock.** Real providers take seconds and fail in their own ways; the
   millisecond numbers here are the gateway's cost, not a user's experience.
 - **One machine.** The load tests run every service on one 4-vCPU runner, so they show where this
-  setup stops (1,000 req/s sustained, 1,200 not), not how it scales out. What runs out first at
-  1,200/s was not identified.
-- **Usage can be under-counted.** A gateway that crashes, or whose queue (100,000 events) fills
-  during a long Kafka outage, loses those events (counted, not recovered). Failed attempts,
+  setup stops (800–1,600 req/s, depending on the CPU), not how it scales out. Past that, each
+  gateway's 384 MB heap is what runs out, which load shedding now prevents.
+- **Overload means errors.** Past 500 requests in flight, an instance answers 503 rather than
+  queueing, so a slow patch shows up as failed requests the client must retry. Right after
+  start-up the JVM is slower, and 1,000/s was not sustained on any runner. With the cap, heap in
+  use still peaked at 363 of 384 MB: a smaller margin than planned (design note 45).
+- **Usage can be under-counted.** A gateway that crashes loses the events it had not yet sent, and
+  nothing counts them. If its queue (100,000 events) fills during a long Kafka outage, it drops
+  further events, and those are counted. Failed attempts,
   cancelled hedges and streams broken before their usage chunk may have been billed by the provider
   but are recorded with 0 tokens. Kafka is one broker without replication.
 - **Accounting lags under heavy load.** The consumer records one event per transaction, about
