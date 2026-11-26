@@ -170,12 +170,12 @@ those models return `503 provider_not_configured`.
 ## Architecture
 
 ```mermaid
-flowchart LR
+flowchart TB
     C[Client<br/>OpenAI SDK, curl] -->|POST /v1/chat/completions<br/>GET /v1/usage| N[nginx<br/>round robin]
     N --> F
 
     subgraph GW[Gateway instance x3]
-        direction LR
+        direction TB
         F[Filters<br/>request ID, API key] --> P[ChatPipeline]
         P --> U[UsageInterceptor<br/>one event per request]
         U --> RL[RateLimitInterceptor<br/>reserve, 429, reconcile]
