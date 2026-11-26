@@ -1,0 +1,23 @@
+{
+  "gateway-1:9091": {
+    "heapMaxMb": 384,
+    "minUp": 1,
+    "peakHeapMb": 203,
+    "peakInFlight": 299,
+    "restarts": 0
+  },
+  "gateway-2:9091": {
+    "heapMaxMb": 384,
+    "minUp": 1,
+    "peakHeapMb": 362,
+    "peakInFlight": 1096,
+    "restarts": 0
+  },
+  "gateway-3:9091": {
+    "heapMaxMb": 384,
+    "minUp": 1,
+    "peakHeapMb": 366,
+    "peakInFlight": 1985,
+    "restarts": 0
+  }
+}

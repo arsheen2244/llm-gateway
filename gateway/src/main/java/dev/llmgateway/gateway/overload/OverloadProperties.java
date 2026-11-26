@@ -19,6 +19,6 @@ import org.springframework.validation.annotation.Validated;
 @ConfigurationProperties(prefix = "gateway.overload")
 public record OverloadProperties(
         @DefaultValue("true") boolean enabled,
-        @DefaultValue("1000") @Min(1) int maxInFlight,
+        @DefaultValue("500") @Min(1) int maxInFlight,
         @DefaultValue("1s") Duration retryAfter) {
 }

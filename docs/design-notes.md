@@ -1693,6 +1693,27 @@ with `Retry-After: 1` and OpenAI's error format (`type: server_error`, `code: ga
 - *Shedding by priority or per client.* Every client here has its own rate limit already; overload
   is about this instance's memory, not about who is asking.
 
-**The value:** 1,000 per instance is a placeholder until the full-stack load test measures how many
-requests are in flight at the highest sustained rate and where the heap runs out. The measured value
-and how it was chosen will be recorded here.
+**The value: 500 per instance**, from a run with the cap effectively off (`max_in_flight=100000`,
+run 45848555328, rates 1,000 → 1,200 → 1,600 → 2,000/s straight after the warm-up; raw data in
+`results/overload/uncapped/`):
+- **A healthy gateway has 140–310 requests in flight** at 1,600/s across the three gateways, using
+  about 165 MB of its 384 MB heap.
+- **A gateway that ran out of heap had about 2,000–2,700 in flight**, with 366–379 MB in use. Each
+  request in flight costs roughly 0.1 MB.
+- 500 is well above the healthy peak (it only binds when answers slow down a lot) and leaves about
+  a third of the heap free (an estimated 210 MB in use), which the garbage collector needs to keep
+  up. At the mock's 100 ms, 500 slots per gateway could serve 5,000 requests per second, far more
+  than the machine can.
+- **Exit and restart worked:** two of the three runs ran out of heap, 1 and 4 times. Each time the
+  JVM logged `Terminating due to java.lang.OutOfMemoryError` and Docker restarted it; no gateway was
+  left half-dead, and Kafka and PostgreSQL agreed exactly in every run.
+
+**Found along the way: a cold start at 1,000/s fails.** In this run 1,000/s came right after the
+one-minute warm-up at 100/s, and it was not sustained on any of the three runners, though 1,000/s
+was in note 43, where the rates rose step by step from 100. On the fastest runner, 1,200 and 1,600/s
+then held with no failures straight after the failed 1,000. A JVM that hasn't yet compiled its hot
+code (the JIT warms up under load) is slower at first, so requests pile up while it catches up.
+Shedding is what should keep that pile from running the heap out.
+
+**Caveat on the measurement:** the summary's `_max` covers about the last two minutes, so a phase
+can show a peak left over from the one before.

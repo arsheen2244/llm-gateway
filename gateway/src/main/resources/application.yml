@@ -131,7 +131,7 @@ gateway:
   # new ones get an immediate 503 with Retry-After instead of piling up until the heap runs out.
   overload:
     enabled: true
-    max-in-flight: 1000
+    max-in-flight: 500       # measured: see design note 45
     retry-after: 1s
 
   # Per-client limits come from gateway.auth.clients (design notes 18-19).

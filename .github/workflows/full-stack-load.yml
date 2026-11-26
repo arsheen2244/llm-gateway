@@ -11,7 +11,7 @@ on:
         default: "100 200 400 600 800 1000 1200 1600 2000"
       max_in_flight:
         description: Requests in flight allowed per gateway before shedding (design note 45)
-        default: "1000"
+        default: "500"
   # A "Run workflow" button only appears once this file is on main, so until then (and whenever
   # the measurement itself changes) a push also runs it.
   push:
@@ -49,7 +49,7 @@ jobs:
 
       - name: Start the stack
         env:
-          GATEWAY_OVERLOAD_MAX_IN_FLIGHT: ${{ github.event.inputs.max_in_flight || '1000' }}
+          GATEWAY_OVERLOAD_MAX_IN_FLIGHT: ${{ github.event.inputs.max_in_flight || '500' }}
         run: |
           docker compose build
           docker compose up -d

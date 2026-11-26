@@ -1,0 +1,63 @@
+
+=== Containers
+SERVICE          STATE     STATUS                    <no value>
+gateway-1        running   Up 1 second               0
+gateway-2        running   Up 19 seconds             0
+gateway-3        running   Up 42 seconds             0
+grafana          running   Up 13 minutes             0
+kafka            running   Up 13 minutes (healthy)   0
+mock-provider    running   Up 13 minutes             0
+nginx            running   Up 13 minutes             0
+postgres         running   Up 13 minutes (healthy)   0
+prometheus       running   Up 13 minutes             0
+redis            running   Up 13 minutes (healthy)   0
+usage-consumer   running   Up 12 minutes             0
+gateway-1 oom-killed=false restarts=1 started=2026-11-26T15:37:42.079020622Z exit=0
+gateway-2 oom-killed=false restarts=1 started=2026-11-26T15:37:24.424915277Z exit=0
+gateway-3 oom-killed=false restarts=2 started=2026-11-26T15:37:01.128758969Z exit=0
+usage-consumer oom-killed=false restarts=0 started=2026-11-26T15:24:48.855081886Z exit=0
+kafka oom-killed=false restarts=0 started=2026-11-26T15:24:25.414254193Z exit=0
+
+=== JVM starts seen by Prometheus (more than one value = a restart)
+{'gateway-2:9091': 1.0, 'gateway-3:9091': 1.0}
+up now: {'gateway-1:9091': 0.0, 'gateway-2:9091': 1.0, 'gateway-3:9091': 1.0}
+
+=== Events per stage, per gateway (last reported values)
+gateway-1:9091: emitted 58467, sent 58461, dropped 0, queued 4, unaccounted 2
+gateway-2:9091: emitted 52453, sent 0, dropped 0, queued 0, unaccounted 52453
+gateway-3:9091: emitted 909, sent 149, dropped 0, queued 0, unaccounted 760
+all: emitted 111829, sent 58610, dropped 0, queued 4, unaccounted 53215
+in Kafka: usage-events 149838 | usage-events-dlt ? (Error occurred: Could not match any topic-partitions with the specified filters)
+recorded: 149838
+GROUP           TOPIC           PARTITION  CURRENT-OFFSET  LOG-END-OFFSET  LAG             CONSUMER-ID                                                    HOST            CLIENT-ID
+usage-consumer  usage-events    0          -               0               -               consumer-usage-consumer-1-93d64246-09b4-4972-84d2-33b9133b2203 /172.18.0.12    consumer-usage-consumer-1
+usage-consumer  usage-events    1          149791          149791          0               consumer-usage-consumer-2-bb9a9c88-30e6-4b16-bc26-b161a297ded6 /172.18.0.12    consumer-usage-consumer-2
+usage-consumer  usage-events    2          47              47              0               consumer-usage-consumer-3-2d5686d8-2a37-4791-87da-d82e6e950da5 /172.18.0.12    consumer-usage-consumer-3
+
+=== Gateway warnings and errors (counts by message)
+-- gateway-1: 272 lines
+    212   {"@timestamp":"N-N-NTN:N:N.NZ","log":{"level":"WARN","logger":"dev.llmgateway.gateway.cache.CacheInterceptor"},"process":{"pid":N,"thread":{"name":"tomcat-handler-N"}},"service":{"name":"llm-gateway","version":"N.N.N-SN
+     58   {"@timestamp":"N-N-NTN:N:N.NZ","log":{"level":"WARN","logger":"dev.llmgateway.gateway.ratelimit.FallbackRateLimiter"},"process":{"pid":N,"thread":{"name":"tomcat-handler-N"}},"service":{"name":"llm-gateway","version":"N
+      1   {"@timestamp":"N-N-NTN:N:N.NZ","log":{"level":"WARN","logger":"org.apache.kafka.clients.NetworkClient"},"process":{"pid":N,"thread":{"name":"kafka-producer-network-thread | llm-gateway-usage"}},"service":{"name":"llm-ga
+      1   Terminating due to java.lang.OutOfMemoryError: Java heap space
+-- gateway-2: 869 lines
+    836   {"@timestamp":"N-N-NTN:N:N.NZ","log":{"level":"WARN","logger":"dev.llmgateway.gateway.cache.CacheInterceptor"},"process":{"pid":N,"thread":{"name":"tomcat-handler-N"}},"service":{"name":"llm-gateway","version":"N.N.N-SN
+     32   {"@timestamp":"N-N-NTN:N:N.NZ","log":{"level":"WARN","logger":"dev.llmgateway.gateway.ratelimit.FallbackRateLimiter"},"process":{"pid":N,"thread":{"name":"tomcat-handler-N"}},"service":{"name":"llm-gateway","version":"N
+      1   Terminating due to java.lang.OutOfMemoryError: Java heap space
+-- gateway-3: 2071 lines
+   1167   {"@timestamp":"N-N-NTN:N:N.NZ","log":{"level":"WARN","logger":"dev.llmgateway.gateway.cache.CacheInterceptor"},"process":{"pid":N,"thread":{"name":"tomcat-handler-N"}},"service":{"name":"llm-gateway","version":"N.N.N-SN
+    748   {"@timestamp":"N-N-NTN:N:N.NZ","log":{"level":"WARN","logger":"dev.llmgateway.gateway.api.ApiExceptionHandler"},"process":{"pid":N,"thread":{"name":"tomcat-handler-N"}},"service":{"name":"llm-gateway","version":"N.N.N-S
+    154   {"@timestamp":"N-N-NTN:N:N.NZ","log":{"level":"WARN","logger":"dev.llmgateway.gateway.ratelimit.FallbackRateLimiter"},"process":{"pid":N,"thread":{"name":"tomcat-handler-N"}},"service":{"name":"llm-gateway","version":"N
+      2   Terminating due to java.lang.OutOfMemoryError: Java heap space
+
+=== Consumer warnings and errors
+9 lines
+usage-consumer-1  | 2026-11-26T15:24:56.311Z  INFO 1 --- [usage-consumer] [ntainer#0-0-C-1] o.a.k.c.c.internals.ConsumerCoordinator  : [Consumer clientId=consumer-usage-consumer-1, groupId=usage-consumer] Request joining group due to: rebalance failed due to 'This is not the correct coordinator.' (NotCoordinatorException)
+usage-consumer-1  | 2026-11-26T15:24:56.325Z  INFO 1 --- [usage-consumer] [ntainer#0-1-C-1] o.a.k.c.c.internals.ConsumerCoordinator  : [Consumer clientId=consumer-usage-consumer-2, groupId=usage-consumer] Request joining group due to: rebalance failed due to 'This is not the correct coordinator.' (NotCoordinatorException)
+usage-consumer-1  | 2026-11-26T15:24:56.340Z  INFO 1 --- [usage-consumer] [ntainer#0-2-C-1] o.a.k.c.c.internals.ConsumerCoordinator  : [Consumer clientId=consumer-usage-consumer-3, groupId=usage-consumer] Request joining group due to: rebalance failed due to 'This is not the correct coordinator.' (NotCoordinatorException)
+usage-consumer-1  | 2026-11-26T15:24:56.456Z  INFO 1 --- [usage-consumer] [ntainer#0-0-C-1] o.a.k.c.c.internals.ConsumerCoordinator  : [Consumer clientId=consumer-usage-consumer-1, groupId=usage-consumer] Request joining group due to: rebalance failed due to 'This is not the correct coordinator.' (NotCoordinatorException)
+usage-consumer-1  | 2026-11-26T15:24:56.472Z  INFO 1 --- [usage-consumer] [ntainer#0-1-C-1] o.a.k.c.c.internals.ConsumerCoordinator  : [Consumer clientId=consumer-usage-consumer-2, groupId=usage-consumer] Request joining group due to: rebalance failed due to 'This is not the correct coordinator.' (NotCoordinatorException)
+usage-consumer-1  | 2026-11-26T15:24:56.483Z  INFO 1 --- [usage-consumer] [ntainer#0-2-C-1] o.a.k.c.c.internals.ConsumerCoordinator  : [Consumer clientId=consumer-usage-consumer-3, groupId=usage-consumer] Request joining group due to: rebalance failed due to 'This is not the correct coordinator.' (NotCoordinatorException)
+usage-consumer-1  | 2026-11-26T15:24:56.566Z  INFO 1 --- [usage-consumer] [ntainer#0-0-C-1] o.a.k.c.c.internals.ConsumerCoordinator  : [Consumer clientId=consumer-usage-consumer-1, groupId=usage-consumer] Request joining group due to: rebalance failed due to 'This is not the correct coordinator.' (NotCoordinatorException)
+usage-consumer-1  | 2026-11-26T15:24:56.593Z  INFO 1 --- [usage-consumer] [ntainer#0-1-C-1] o.a.k.c.c.internals.ConsumerCoordinator  : [Consumer clientId=consumer-usage-consumer-2, groupId=usage-consumer] Request joining group due to: rebalance failed due to 'This is not the correct coordinator.' (NotCoordinatorException)
+usage-consumer-1  | 2026-11-26T15:24:56.614Z  INFO 1 --- [usage-consumer] [ntainer#0-2-C-1] o.a.k.c.c.internals.ConsumerCoordinator  : [Consumer clientId=consumer-usage-consumer-3, groupId=usage-consumer] Request joining group due to: rebalance failed due to 'This is not the correct coordinator.' (NotCoordinatorException)

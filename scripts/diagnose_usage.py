@@ -50,7 +50,7 @@ def kafka_total(topic):
     offsets = [int(m) for m in re.findall(r"^[\w-]+:\d+:(\d+)$", out, re.MULTILINE)]
     if offsets:
         return sum(offsets)
-    return "0 (no such topic)" if "does not exist" in out or not out else f"? ({out[:200]})"
+    return "0 (no such topic)" if "does not exist" in out or "Could not match any topic" in out or not out else f"? ({out[:200]})"
 
 
 def sql(query):
