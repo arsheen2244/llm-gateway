@@ -1,0 +1,56 @@
+
+=== Containers
+SERVICE          STATE     STATUS                    <no value>
+gateway-1        running   Up 14 minutes             0
+gateway-2        running   Up 14 minutes             0
+gateway-3        running   Up 14 minutes             0
+grafana          running   Up 14 minutes             0
+kafka            running   Up 14 minutes (healthy)   0
+mock-provider    running   Up 14 minutes             0
+nginx            running   Up 14 minutes             0
+postgres         running   Up 14 minutes (healthy)   0
+prometheus       running   Up 14 minutes             0
+redis            running   Up 14 minutes (healthy)   0
+usage-consumer   running   Up 14 minutes             0
+gateway-1 oom-killed=false restarts=0 started=2026-11-26T15:43:51.378176511Z exit=0
+gateway-2 oom-killed=false restarts=0 started=2026-11-26T15:43:51.37307973Z exit=0
+gateway-3 oom-killed=false restarts=0 started=2026-11-26T15:43:51.38849933Z exit=0
+usage-consumer oom-killed=false restarts=0 started=2026-11-26T15:44:14.015804423Z exit=0
+kafka oom-killed=false restarts=0 started=2026-11-26T15:43:48.419336628Z exit=0
+
+=== JVM starts seen by Prometheus (more than one value = a restart)
+{'gateway-2:9091': 1.0, 'gateway-3:9091': 1.0, 'gateway-1:9091': 1.0}
+up now: {'gateway-3:9091': 1.0, 'gateway-1:9091': 1.0, 'gateway-2:9091': 1.0}
+
+=== Events per stage, per gateway (last reported values)
+gateway-1:9091: emitted 63547, sent 63547, dropped 0, queued 0, unaccounted 0
+gateway-2:9091: emitted 66613, sent 66613, dropped 0, queued 0, unaccounted 0
+gateway-3:9091: emitted 66765, sent 66765, dropped 0, queued 0, unaccounted 0
+all: emitted 196925, sent 196925, dropped 0, queued 0, unaccounted 0
+in Kafka: usage-events 196925 | usage-events-dlt 0 (no such topic)
+recorded: 196925
+GROUP           TOPIC           PARTITION  CURRENT-OFFSET  LOG-END-OFFSET  LAG             CONSUMER-ID                                                    HOST            CLIENT-ID
+usage-consumer  usage-events    1          196875          196875          0               consumer-usage-consumer-2-9c4221c3-6be2-41d1-a801-bac88890400e /172.18.0.12    consumer-usage-consumer-2
+usage-consumer  usage-events    0          -               0               -               consumer-usage-consumer-1-237a81a2-f85a-41bd-b11b-b8e423363a2d /172.18.0.12    consumer-usage-consumer-1
+usage-consumer  usage-events    2          50              50              0               consumer-usage-consumer-3-99fbcbff-6ff0-408f-882b-db70c63dae08 /172.18.0.12    consumer-usage-consumer-3
+
+=== Gateway warnings and errors (counts by message)
+-- gateway-1: 1048 lines
+    965   {"@timestamp":"N-N-NTN:N:N.NZ","log":{"level":"WARN","logger":"dev.llmgateway.gateway.cache.CacheInterceptor"},"process":{"pid":N,"thread":{"name":"tomcat-handler-N"}},"service":{"name":"llm-gateway","version":"N.N.N-SN
+     82   {"@timestamp":"N-N-NTN:N:N.NZ","log":{"level":"WARN","logger":"dev.llmgateway.gateway.ratelimit.FallbackRateLimiter"},"process":{"pid":N,"thread":{"name":"tomcat-handler-N"}},"service":{"name":"llm-gateway","version":"N
+      1   {"@timestamp":"N-N-NTN:N:N.NZ","log":{"level":"WARN","logger":"org.apache.kafka.clients.NetworkClient"},"process":{"pid":N,"thread":{"name":"kafka-producer-network-thread | llm-gateway-usage"}},"service":{"name":"llm-ga
+-- gateway-2: 757 lines
+    673   {"@timestamp":"N-N-NTN:N:N.NZ","log":{"level":"WARN","logger":"dev.llmgateway.gateway.cache.CacheInterceptor"},"process":{"pid":N,"thread":{"name":"tomcat-handler-N"}},"service":{"name":"llm-gateway","version":"N.N.N-SN
+     84   {"@timestamp":"N-N-NTN:N:N.NZ","log":{"level":"WARN","logger":"dev.llmgateway.gateway.ratelimit.FallbackRateLimiter"},"process":{"pid":N,"thread":{"name":"tomcat-handler-N"}},"service":{"name":"llm-gateway","version":"N
+-- gateway-3: 734 lines
+    670   {"@timestamp":"N-N-NTN:N:N.NZ","log":{"level":"WARN","logger":"dev.llmgateway.gateway.cache.CacheInterceptor"},"process":{"pid":N,"thread":{"name":"tomcat-handler-N"}},"service":{"name":"llm-gateway","version":"N.N.N-SN
+     64   {"@timestamp":"N-N-NTN:N:N.NZ","log":{"level":"WARN","logger":"dev.llmgateway.gateway.ratelimit.FallbackRateLimiter"},"process":{"pid":N,"thread":{"name":"tomcat-handler-N"}},"service":{"name":"llm-gateway","version":"N
+
+=== Consumer warnings and errors
+6 lines
+usage-consumer-1  | 2026-11-26T15:44:24.208Z  INFO 1 --- [usage-consumer] [ntainer#0-1-C-1] o.a.k.c.c.internals.ConsumerCoordinator  : [Consumer clientId=consumer-usage-consumer-2, groupId=usage-consumer] Request joining group due to: rebalance failed due to 'This is not the correct coordinator.' (NotCoordinatorException)
+usage-consumer-1  | 2026-11-26T15:44:24.215Z  INFO 1 --- [usage-consumer] [ntainer#0-0-C-1] o.a.k.c.c.internals.ConsumerCoordinator  : [Consumer clientId=consumer-usage-consumer-1, groupId=usage-consumer] Request joining group due to: rebalance failed due to 'This is not the correct coordinator.' (NotCoordinatorException)
+usage-consumer-1  | 2026-11-26T15:44:24.226Z  INFO 1 --- [usage-consumer] [ntainer#0-2-C-1] o.a.k.c.c.internals.ConsumerCoordinator  : [Consumer clientId=consumer-usage-consumer-3, groupId=usage-consumer] Request joining group due to: rebalance failed due to 'This is not the correct coordinator.' (NotCoordinatorException)
+usage-consumer-1  | 2026-11-26T15:44:24.335Z  INFO 1 --- [usage-consumer] [ntainer#0-1-C-1] o.a.k.c.c.internals.ConsumerCoordinator  : [Consumer clientId=consumer-usage-consumer-2, groupId=usage-consumer] Request joining group due to: rebalance failed due to 'This is not the correct coordinator.' (NotCoordinatorException)
+usage-consumer-1  | 2026-11-26T15:44:24.344Z  INFO 1 --- [usage-consumer] [ntainer#0-0-C-1] o.a.k.c.c.internals.ConsumerCoordinator  : [Consumer clientId=consumer-usage-consumer-1, groupId=usage-consumer] Request joining group due to: rebalance failed due to 'This is not the correct coordinator.' (NotCoordinatorException)
+usage-consumer-1  | 2026-11-26T15:44:24.358Z  INFO 1 --- [usage-consumer] [ntainer#0-2-C-1] o.a.k.c.c.internals.ConsumerCoordinator  : [Consumer clientId=consumer-usage-consumer-3, groupId=usage-consumer] Request joining group due to: rebalance failed due to 'This is not the correct coordinator.' (NotCoordinatorException)

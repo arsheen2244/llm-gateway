@@ -1,0 +1,53 @@
+
+=== Containers
+SERVICE          STATE     STATUS                    <no value>
+gateway-1        running   Up 26 minutes             0
+gateway-2        running   Up 26 minutes             0
+gateway-3        running   Up 26 minutes             0
+grafana          running   Up 26 minutes             0
+kafka            running   Up 26 minutes (healthy)   0
+mock-provider    running   Up 26 minutes             0
+nginx            running   Up 26 minutes             0
+postgres         running   Up 26 minutes (healthy)   0
+prometheus       running   Up 26 minutes             0
+redis            running   Up 26 minutes (healthy)   0
+usage-consumer   running   Up 26 minutes             0
+gateway-1 oom-killed=false restarts=0 started=2026-11-26T15:43:47.26213809Z exit=0
+gateway-2 oom-killed=false restarts=0 started=2026-11-26T15:43:47.262610002Z exit=0
+gateway-3 oom-killed=false restarts=0 started=2026-11-26T15:43:47.262229968Z exit=0
+usage-consumer oom-killed=false restarts=0 started=2026-11-26T15:43:57.620268608Z exit=0
+kafka oom-killed=false restarts=0 started=2026-11-26T15:43:44.816307749Z exit=0
+
+=== JVM starts seen by Prometheus (more than one value = a restart)
+{'gateway-2:9091': 1.0, 'gateway-3:9091': 1.0, 'gateway-1:9091': 1.0}
+up now: {'gateway-3:9091': 1.0, 'gateway-1:9091': 1.0, 'gateway-2:9091': 1.0}
+
+=== Events per stage, per gateway (last reported values)
+gateway-1:9091: emitted 153499, sent 153499, dropped 0, queued 0, unaccounted 0
+gateway-2:9091: emitted 153070, sent 153070, dropped 0, queued 0, unaccounted 0
+gateway-3:9091: emitted 153374, sent 153374, dropped 0, queued 0, unaccounted 0
+all: emitted 459943, sent 459943, dropped 0, queued 0, unaccounted 0
+in Kafka: usage-events 459943 | usage-events-dlt 0 (no such topic)
+recorded: 459943
+GROUP           TOPIC           PARTITION  CURRENT-OFFSET  LOG-END-OFFSET  LAG             CONSUMER-ID                                                    HOST            CLIENT-ID
+usage-consumer  usage-events    2          48              48              0               consumer-usage-consumer-3-54755920-1d8c-478e-9695-57986da914ba /172.18.0.12    consumer-usage-consumer-3
+usage-consumer  usage-events    0          -               0               -               consumer-usage-consumer-1-564e1121-290c-4347-a34c-efd0c834f5e0 /172.18.0.12    consumer-usage-consumer-1
+usage-consumer  usage-events    1          459895          459895          0               consumer-usage-consumer-2-11222908-d346-4844-8fd1-60ac657020ac /172.18.0.12    consumer-usage-consumer-2
+
+=== Gateway warnings and errors (counts by message)
+-- gateway-1: 73 lines
+     67   {"@timestamp":"N-N-NTN:N:N.NZ","log":{"level":"WARN","logger":"dev.llmgateway.gateway.cache.CacheInterceptor"},"process":{"pid":N,"thread":{"name":"tomcat-handler-N"}},"service":{"name":"llm-gateway","version":"N.N.N-SN
+      5   {"@timestamp":"N-N-NTN:N:N.NZ","log":{"level":"WARN","logger":"dev.llmgateway.gateway.ratelimit.FallbackRateLimiter"},"process":{"pid":N,"thread":{"name":"tomcat-handler-N"}},"service":{"name":"llm-gateway","version":"N
+      1   {"@timestamp":"N-N-NTN:N:N.NZ","log":{"level":"WARN","logger":"org.apache.kafka.clients.NetworkClient"},"process":{"pid":N,"thread":{"name":"kafka-producer-network-thread | llm-gateway-usage"}},"service":{"name":"llm-ga
+-- gateway-2: 421 lines
+    392   {"@timestamp":"N-N-NTN:N:N.NZ","log":{"level":"WARN","logger":"dev.llmgateway.gateway.cache.CacheInterceptor"},"process":{"pid":N,"thread":{"name":"tomcat-handler-N"}},"service":{"name":"llm-gateway","version":"N.N.N-SN
+     29   {"@timestamp":"N-N-NTN:N:N.NZ","log":{"level":"WARN","logger":"dev.llmgateway.gateway.ratelimit.FallbackRateLimiter"},"process":{"pid":N,"thread":{"name":"tomcat-handler-N"}},"service":{"name":"llm-gateway","version":"N
+-- gateway-3: 180 lines
+    170   {"@timestamp":"N-N-NTN:N:N.NZ","log":{"level":"WARN","logger":"dev.llmgateway.gateway.cache.CacheInterceptor"},"process":{"pid":N,"thread":{"name":"tomcat-handler-N"}},"service":{"name":"llm-gateway","version":"N.N.N-SN
+     10   {"@timestamp":"N-N-NTN:N:N.NZ","log":{"level":"WARN","logger":"dev.llmgateway.gateway.ratelimit.FallbackRateLimiter"},"process":{"pid":N,"thread":{"name":"tomcat-handler-N"}},"service":{"name":"llm-gateway","version":"N
+
+=== Consumer warnings and errors
+3 lines
+usage-consumer-1  | 2026-11-26T15:44:07.479Z  INFO 1 --- [usage-consumer] [ntainer#0-2-C-1] o.a.k.c.c.internals.ConsumerCoordinator  : [Consumer clientId=consumer-usage-consumer-3, groupId=usage-consumer] Request joining group due to: rebalance failed due to 'This is not the correct coordinator.' (NotCoordinatorException)
+usage-consumer-1  | 2026-11-26T15:44:07.481Z  INFO 1 --- [usage-consumer] [ntainer#0-1-C-1] o.a.k.c.c.internals.ConsumerCoordinator  : [Consumer clientId=consumer-usage-consumer-2, groupId=usage-consumer] Request joining group due to: rebalance failed due to 'This is not the correct coordinator.' (NotCoordinatorException)
+usage-consumer-1  | 2026-11-26T15:44:07.485Z  INFO 1 --- [usage-consumer] [ntainer#0-0-C-1] o.a.k.c.c.internals.ConsumerCoordinator  : [Consumer clientId=consumer-usage-consumer-1, groupId=usage-consumer] Request joining group due to: rebalance failed due to 'This is not the correct coordinator.' (NotCoordinatorException)

@@ -1,0 +1,50 @@
+
+=== Containers
+SERVICE          STATE     STATUS                    <no value>
+gateway-1        running   Up 25 minutes             0
+gateway-2        running   Up 25 minutes             0
+gateway-3        running   Up 25 minutes             0
+grafana          running   Up 25 minutes             0
+kafka            running   Up 25 minutes (healthy)   0
+mock-provider    running   Up 25 minutes             0
+nginx            running   Up 25 minutes             0
+postgres         running   Up 25 minutes (healthy)   0
+prometheus       running   Up 25 minutes             0
+redis            running   Up 25 minutes (healthy)   0
+usage-consumer   running   Up 24 minutes             0
+gateway-1 oom-killed=false restarts=0 started=2026-11-26T15:43:41.641461504Z exit=0
+gateway-2 oom-killed=false restarts=0 started=2026-11-26T15:43:41.639767362Z exit=0
+gateway-3 oom-killed=false restarts=0 started=2026-11-26T15:43:41.623730927Z exit=0
+usage-consumer oom-killed=false restarts=0 started=2026-11-26T15:43:50.198609201Z exit=0
+kafka oom-killed=false restarts=0 started=2026-11-26T15:43:38.261820428Z exit=0
+
+=== JVM starts seen by Prometheus (more than one value = a restart)
+{'gateway-1:9091': 1.0, 'gateway-2:9091': 1.0, 'gateway-3:9091': 1.0}
+up now: {'gateway-1:9091': 1.0, 'gateway-2:9091': 1.0, 'gateway-3:9091': 1.0}
+
+=== Events per stage, per gateway (last reported values)
+gateway-1:9091: emitted 159984, sent 159984, dropped 0, queued 0, unaccounted 0
+gateway-2:9091: emitted 159992, sent 159992, dropped 0, queued 0, unaccounted 0
+gateway-3:9091: emitted 159995, sent 159995, dropped 0, queued 0, unaccounted 0
+all: emitted 479971, sent 479971, dropped 0, queued 0, unaccounted 0
+in Kafka: usage-events 479971 | usage-events-dlt 0 (no such topic)
+recorded: 479971
+GROUP           TOPIC           PARTITION  CURRENT-OFFSET  LOG-END-OFFSET  LAG             CONSUMER-ID                                                    HOST            CLIENT-ID
+usage-consumer  usage-events    1          479923          479923          0               consumer-usage-consumer-2-174e13ca-d40d-4798-b132-504614fcb14d /172.18.0.12    consumer-usage-consumer-2
+usage-consumer  usage-events    0          -               0               -               consumer-usage-consumer-1-17e590c9-f177-4374-bbbe-343cc6e32f00 /172.18.0.12    consumer-usage-consumer-1
+usage-consumer  usage-events    2          48              48              0               consumer-usage-consumer-3-6c1ff0bb-ee6b-42aa-9f54-b988c505f91e /172.18.0.12    consumer-usage-consumer-3
+
+=== Gateway warnings and errors (counts by message)
+-- gateway-1: 0 lines
+-- gateway-2: 1 lines
+      1   {"@timestamp":"N-N-NTN:N:N.NZ","log":{"level":"WARN","logger":"org.apache.kafka.clients.NetworkClient"},"process":{"pid":N,"thread":{"name":"kafka-producer-network-thread | llm-gateway-usage"}},"service":{"name":"llm-ga
+-- gateway-3: 0 lines
+
+=== Consumer warnings and errors
+6 lines
+usage-consumer-1  | 2026-11-26T15:44:00.037Z  INFO 1 --- [usage-consumer] [ntainer#0-1-C-1] o.a.k.c.c.internals.ConsumerCoordinator  : [Consumer clientId=consumer-usage-consumer-2, groupId=usage-consumer] Request joining group due to: rebalance failed due to 'This is not the correct coordinator.' (NotCoordinatorException)
+usage-consumer-1  | 2026-11-26T15:44:00.047Z  INFO 1 --- [usage-consumer] [ntainer#0-2-C-1] o.a.k.c.c.internals.ConsumerCoordinator  : [Consumer clientId=consumer-usage-consumer-3, groupId=usage-consumer] Request joining group due to: rebalance failed due to 'This is not the correct coordinator.' (NotCoordinatorException)
+usage-consumer-1  | 2026-11-26T15:44:00.058Z  INFO 1 --- [usage-consumer] [ntainer#0-0-C-1] o.a.k.c.c.internals.ConsumerCoordinator  : [Consumer clientId=consumer-usage-consumer-1, groupId=usage-consumer] Request joining group due to: rebalance failed due to 'This is not the correct coordinator.' (NotCoordinatorException)
+usage-consumer-1  | 2026-11-26T15:44:00.160Z  INFO 1 --- [usage-consumer] [ntainer#0-1-C-1] o.a.k.c.c.internals.ConsumerCoordinator  : [Consumer clientId=consumer-usage-consumer-2, groupId=usage-consumer] Request joining group due to: rebalance failed due to 'This is not the correct coordinator.' (NotCoordinatorException)
+usage-consumer-1  | 2026-11-26T15:44:00.173Z  INFO 1 --- [usage-consumer] [ntainer#0-0-C-1] o.a.k.c.c.internals.ConsumerCoordinator  : [Consumer clientId=consumer-usage-consumer-1, groupId=usage-consumer] Request joining group due to: rebalance failed due to 'This is not the correct coordinator.' (NotCoordinatorException)
+usage-consumer-1  | 2026-11-26T15:44:00.181Z  INFO 1 --- [usage-consumer] [ntainer#0-2-C-1] o.a.k.c.c.internals.ConsumerCoordinator  : [Consumer clientId=consumer-usage-consumer-3, groupId=usage-consumer] Request joining group due to: rebalance failed due to 'This is not the correct coordinator.' (NotCoordinatorException)

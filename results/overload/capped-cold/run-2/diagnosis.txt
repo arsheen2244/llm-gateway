@@ -1,0 +1,62 @@
+
+=== Containers
+SERVICE          STATE     STATUS                    <no value>
+gateway-1        running   Up 14 minutes             0
+gateway-2        running   Up 14 minutes             0
+gateway-3        running   Up 14 minutes             0
+grafana          running   Up 14 minutes             0
+kafka            running   Up 14 minutes (healthy)   0
+mock-provider    running   Up 14 minutes             0
+nginx            running   Up 14 minutes             0
+postgres         running   Up 14 minutes (healthy)   0
+prometheus       running   Up 14 minutes             0
+redis            running   Up 14 minutes (healthy)   0
+usage-consumer   running   Up 14 minutes             0
+gateway-1 oom-killed=false restarts=0 started=2026-11-26T15:43:54.978574447Z exit=0
+gateway-2 oom-killed=false restarts=0 started=2026-11-26T15:43:54.976620283Z exit=0
+gateway-3 oom-killed=false restarts=0 started=2026-11-26T15:43:54.977878819Z exit=0
+usage-consumer oom-killed=false restarts=0 started=2026-11-26T15:44:05.386363049Z exit=0
+kafka oom-killed=false restarts=0 started=2026-11-26T15:43:52.003935905Z exit=0
+
+=== JVM starts seen by Prometheus (more than one value = a restart)
+{'gateway-3:9091': 1.0, 'gateway-2:9091': 1.0, 'gateway-1:9091': 1.0}
+up now: {'gateway-2:9091': 1.0, 'gateway-1:9091': 1.0, 'gateway-3:9091': 1.0}
+
+=== Events per stage, per gateway (last reported values)
+gateway-1:9091: emitted 106908, sent 106908, dropped 0, queued 0, unaccounted 0
+gateway-2:9091: emitted 106746, sent 106746, dropped 0, queued 0, unaccounted 0
+gateway-3:9091: emitted 107972, sent 107972, dropped 0, queued 0, unaccounted 0
+all: emitted 321626, sent 321626, dropped 0, queued 0, unaccounted 0
+in Kafka: usage-events 321626 | usage-events-dlt 0 (no such topic)
+recorded: 321626
+GROUP           TOPIC           PARTITION  CURRENT-OFFSET  LOG-END-OFFSET  LAG             CONSUMER-ID                                                    HOST            CLIENT-ID
+usage-consumer  usage-events    0          -               0               -               consumer-usage-consumer-1-337fef1d-7336-40b1-9121-1c8623ae0d11 /172.18.0.12    consumer-usage-consumer-1
+usage-consumer  usage-events    1          321579          321579          0               consumer-usage-consumer-2-07e7eb02-2b9a-441e-8531-faeffc60f5af /172.18.0.12    consumer-usage-consumer-2
+usage-consumer  usage-events    2          47              47              0               consumer-usage-consumer-3-db6ce701-2a0e-4e37-94df-750965a155da /172.18.0.12    consumer-usage-consumer-3
+
+=== Gateway warnings and errors (counts by message)
+-- gateway-1: 350 lines
+    317   {"@timestamp":"N-N-NTN:N:N.NZ","log":{"level":"WARN","logger":"dev.llmgateway.gateway.cache.CacheInterceptor"},"process":{"pid":N,"thread":{"name":"tomcat-handler-N"}},"service":{"name":"llm-gateway","version":"N.N.N-SN
+     33   {"@timestamp":"N-N-NTN:N:N.NZ","log":{"level":"WARN","logger":"dev.llmgateway.gateway.ratelimit.FallbackRateLimiter"},"process":{"pid":N,"thread":{"name":"tomcat-handler-N"}},"service":{"name":"llm-gateway","version":"N
+-- gateway-2: 556 lines
+    511   {"@timestamp":"N-N-NTN:N:N.NZ","log":{"level":"WARN","logger":"dev.llmgateway.gateway.cache.CacheInterceptor"},"process":{"pid":N,"thread":{"name":"tomcat-handler-N"}},"service":{"name":"llm-gateway","version":"N.N.N-SN
+     45   {"@timestamp":"N-N-NTN:N:N.NZ","log":{"level":"WARN","logger":"dev.llmgateway.gateway.ratelimit.FallbackRateLimiter"},"process":{"pid":N,"thread":{"name":"tomcat-handler-N"}},"service":{"name":"llm-gateway","version":"N
+-- gateway-3: 271 lines
+    222   {"@timestamp":"N-N-NTN:N:N.NZ","log":{"level":"WARN","logger":"dev.llmgateway.gateway.cache.CacheInterceptor"},"process":{"pid":N,"thread":{"name":"tomcat-handler-N"}},"service":{"name":"llm-gateway","version":"N.N.N-SN
+     49   {"@timestamp":"N-N-NTN:N:N.NZ","log":{"level":"WARN","logger":"dev.llmgateway.gateway.ratelimit.FallbackRateLimiter"},"process":{"pid":N,"thread":{"name":"tomcat-handler-N"}},"service":{"name":"llm-gateway","version":"N
+
+=== Consumer warnings and errors
+13 lines
+usage-consumer-1  | 2026-11-26T15:44:14.827Z  WARN 1 --- [usage-consumer] [ntainer#0-2-C-1] org.apache.kafka.clients.NetworkClient   : [Consumer clientId=consumer-usage-consumer-3, groupId=usage-consumer] The metadata response from the cluster reported a recoverable issue with correlation id 2 : {usage-events=UNKNOWN_TOPIC_OR_PARTITION}
+usage-consumer-1  | 2026-11-26T15:44:14.829Z  WARN 1 --- [usage-consumer] [ntainer#0-0-C-1] org.apache.kafka.clients.NetworkClient   : [Consumer clientId=consumer-usage-consumer-1, groupId=usage-consumer] The metadata response from the cluster reported a recoverable issue with correlation id 2 : {usage-events=UNKNOWN_TOPIC_OR_PARTITION}
+usage-consumer-1  | 2026-11-26T15:44:14.838Z  WARN 1 --- [usage-consumer] [ntainer#0-1-C-1] org.apache.kafka.clients.NetworkClient   : [Consumer clientId=consumer-usage-consumer-2, groupId=usage-consumer] The metadata response from the cluster reported a recoverable issue with correlation id 2 : {usage-events=UNKNOWN_TOPIC_OR_PARTITION}
+usage-consumer-1  | 2026-11-26T15:44:14.945Z  WARN 1 --- [usage-consumer] [ntainer#0-2-C-1] org.apache.kafka.clients.NetworkClient   : [Consumer clientId=consumer-usage-consumer-3, groupId=usage-consumer] The metadata response from the cluster reported a recoverable issue with correlation id 5 : {usage-events=UNKNOWN_TOPIC_OR_PARTITION}
+usage-consumer-1  | 2026-11-26T15:44:14.950Z  WARN 1 --- [usage-consumer] [ntainer#0-0-C-1] org.apache.kafka.clients.NetworkClient   : [Consumer clientId=consumer-usage-consumer-1, groupId=usage-consumer] The metadata response from the cluster reported a recoverable issue with correlation id 5 : {usage-events=UNKNOWN_TOPIC_OR_PARTITION}
+usage-consumer-1  | 2026-11-26T15:44:14.963Z  WARN 1 --- [usage-consumer] [ntainer#0-1-C-1] org.apache.kafka.clients.NetworkClient   : [Consumer clientId=consumer-usage-consumer-2, groupId=usage-consumer] The metadata response from the cluster reported a recoverable issue with correlation id 5 : {usage-events=UNKNOWN_TOPIC_OR_PARTITION}
+usage-consumer-1  | 2026-11-26T15:44:15.082Z  INFO 1 --- [usage-consumer] [ntainer#0-1-C-1] o.a.k.c.c.internals.ConsumerCoordinator  : [Consumer clientId=consumer-usage-consumer-2, groupId=usage-consumer] Request joining group due to: rebalance failed due to 'This is not the correct coordinator.' (NotCoordinatorException)
+usage-consumer-1  | 2026-11-26T15:44:15.102Z  INFO 1 --- [usage-consumer] [ntainer#0-0-C-1] o.a.k.c.c.internals.ConsumerCoordinator  : [Consumer clientId=consumer-usage-consumer-1, groupId=usage-consumer] Request joining group due to: rebalance failed due to 'This is not the correct coordinator.' (NotCoordinatorException)
+usage-consumer-1  | 2026-11-26T15:44:15.116Z  INFO 1 --- [usage-consumer] [ntainer#0-2-C-1] o.a.k.c.c.internals.ConsumerCoordinator  : [Consumer clientId=consumer-usage-consumer-3, groupId=usage-consumer] Request joining group due to: rebalance failed due to 'This is not the correct coordinator.' (NotCoordinatorException)
+usage-consumer-1  | 2026-11-26T15:44:15.126Z  WARN 1 --- [usage-consumer] [ntainer#0-2-C-1] org.apache.kafka.clients.NetworkClient   : [Consumer clientId=consumer-usage-consumer-3, groupId=usage-consumer] The metadata response from the cluster reported a recoverable issue with correlation id 13 : {usage-events=UNKNOWN_TOPIC_OR_PARTITION}
+usage-consumer-1  | 2026-11-26T15:44:15.201Z  INFO 1 --- [usage-consumer] [ntainer#0-1-C-1] o.a.k.c.c.internals.ConsumerCoordinator  : [Consumer clientId=consumer-usage-consumer-2, groupId=usage-consumer] Request joining group due to: rebalance failed due to 'This is not the correct coordinator.' (NotCoordinatorException)
+usage-consumer-1  | 2026-11-26T15:44:15.210Z  INFO 1 --- [usage-consumer] [ntainer#0-0-C-1] o.a.k.c.c.internals.ConsumerCoordinator  : [Consumer clientId=consumer-usage-consumer-1, groupId=usage-consumer] Request joining group due to: rebalance failed due to 'This is not the correct coordinator.' (NotCoordinatorException)
+usage-consumer-1  | 2026-11-26T15:44:15.225Z  INFO 1 --- [usage-consumer] [ntainer#0-2-C-1] o.a.k.c.c.internals.ConsumerCoordinator  : [Consumer clientId=consumer-usage-consumer-3, groupId=usage-consumer] Request joining group due to: rebalance failed due to 'This is not the correct coordinator.' (NotCoordinatorException)

@@ -1717,3 +1717,34 @@ Shedding is what should keep that pile from running the heap out.
 
 **Caveat on the measurement:** the summary's `_max` covers about the last two minutes, so a phase
 can show a peak left over from the one before.
+
+**Checked with the cap at 500** (raw data in `results/overload/capped-ramp/` and `capped-cold/`):
+two workflow runs of three runners each. Run 45851786625 used the full series, 100 → 2,000/s
+rising step by step as in note 43. Run 45851801559 used a cold start, 1,000 → 2,000/s straight
+after the warm-up.
+- **No gateway ran out of heap or restarted** in any of the six, cold starts included, where the
+  same rates without the cap ran out of heap five times.
+- **Every failed request was a shed 503.** In every row of every run, failed = shed: no timeouts, no
+  nginx errors, no dead instance.
+- **Accounting was exact in all six:** events created = sent = in Kafka = in PostgreSQL (459,943,
+  398,864, 479,971, 196,925, 321,626 and 273,990), none dropped, none unaccounted.
+- **Highest rate sustained** (no failure, nothing skipped) on the rising series: 1,200/s (AMD EPYC
+  9V45), 800/s (AMD EPYC 7763), 1,600/s (Intel Xeon 6975P-C). Note 43's two runs, without the cap
+  and both on the EPYC 7763, sustained 1,000/s. This time the 7763 runner hit a slow patch at 1,000/s
+  and shed 3,920 requests (7.0%) instead of letting them queue. Without the cap that patch might
+  have passed, or run a gateway out of heap; one run can't say which.
+
+**What this costs:** shedding turns a slow patch into errors the client sees, where an unlimited
+queue would have turned it into latency, until the heap ran out. With a 384 MB heap that trade is
+worth it: the alternative failed a third of all requests for the rest of the run.
+
+**Not as expected:** heap in use still peaked at 334–363 MB in the cold runs with 500 in flight, more
+than the 0.1 MB per request estimated above. "In use" counts garbage not yet collected, and a
+saturated CPU collects it later, so the estimate from the uncapped run was too low. None ran out,
+but the margin is smaller than planned. A lower cap or a larger heap would widen it; it was left at
+500 because nothing failed.
+
+**A cold start is still slow:** even with shedding, 1,000/s straight after the warm-up was not
+sustained on any of the three runners (8,602–15,393 requests shed and 4,398–11,973 skipped by k6).
+The JVM warming up (above) is the likely cause; a longer warm-up, or compiling the hot paths
+ahead of time, would be the fix, and neither has been tried.

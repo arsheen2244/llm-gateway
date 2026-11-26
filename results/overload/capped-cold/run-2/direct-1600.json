@@ -1,0 +1,17 @@
+{
+  "target": "direct",
+  "rate": 1600,
+  "seconds": 60,
+  "requests": 96002,
+  "achievedRate": 1597.3162094639006,
+  "answered": 0,
+  "shed": 0,
+  "errorRate": 0,
+  "failed": 0,
+  "droppedIterations": 0,
+  "ok": 96002,
+  "p50": 100.36591,
+  "p95": 100.95948665,
+  "p99": 101.9508715,
+  "max": 111.342146
+}

@@ -1,0 +1,17 @@
+{
+  "target": "gateway",
+  "rate": 600,
+  "seconds": 60,
+  "requests": 36001,
+  "achievedRate": 598.9944718784051,
+  "answered": 36001,
+  "shed": 0,
+  "errorRate": 0,
+  "failed": 0,
+  "droppedIterations": 0,
+  "ok": 36001,
+  "p50": 101.914185,
+  "p95": 106.77493,
+  "p99": 113.416468,
+  "max": 172.355811
+}
