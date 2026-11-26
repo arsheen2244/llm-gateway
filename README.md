@@ -171,29 +171,32 @@ those models return `503 provider_not_configured`.
 
 ```mermaid
 flowchart TB
-    subgraph REQ["Request path: nginx, then any of 3 gateway instances"]
+    subgraph REQ["1. Request path: nginx, then any of 3 gateway instances"]
         direction LR
-        C[Client<br/>OpenAI SDK, curl] --> N[nginx<br/>round robin]
-        N --> F[Filters<br/>request ID, API key]
-        F --> U[UsageInterceptor<br/>one event per request]
-        U --> RL[RateLimitInterceptor<br/>reserve, 429, reconcile]
-        RL --> CA[CacheInterceptor<br/>exact match, X-Cache]
-        CA --> EX[ResilientExecutor<br/>breakers, retries,<br/>failover, hedging]
-        EX --> PR[Adapters<br/>OpenAI, Anthropic,<br/>or the mock]
-        RL <-->|Lua| RD[(Redis 8<br/>limits, cache)]
-        CA <--> RD
+        C[Client] --> N[nginx<br/>round robin]
+        N --> F[Filters<br/>request ID,<br/>API key]
+        F --> U[Usage<br/>interceptor]
+        U --> RL[Rate limiter<br/>Redis + Lua]
+        RL --> CA[Cache<br/>Redis]
+        CA --> EX[Resilient executor<br/>breakers, retries,<br/>failover, hedging]
+        EX --> PR[Adapters<br/>OpenAI, Anthropic,<br/>mock]
     end
 
-    subgraph ACC["Accounting and metrics"]
+    subgraph ACC["2. Usage accounting"]
         direction LR
-        Q[KafkaUsageSink<br/>bounded queue,<br/>never blocks] --> K[[Kafka<br/>usage-events]]
-        K --> CO[usage-consumer<br/>exactly-once totals]
-        CO --> PG[(PostgreSQL<br/>events, daily totals,<br/>prices)]
-        UC[GET /v1/usage<br/>read-only role] --> PG
-        G[Grafana] --> PM[Prometheus<br/>scrapes each gateway]
+        Q[Kafka sink<br/>bounded queue] --> K[[Kafka]]
+        K --> CO[usage-consumer<br/>exactly once]
+        CO --> PG[(PostgreSQL)]
+        PG --> UC[GET /v1/usage<br/>read-only role]
     end
 
-    REQ -->|each request's usage event,<br/>handed over asynchronously| ACC
+    subgraph MET["3. Metrics"]
+        direction LR
+        M[Each gateway<br/>port 9091] --> PM[Prometheus] --> G[Grafana]
+    end
+
+    REQ -->|one usage event per request, async| ACC
+    ACC ~~~ MET
 ```
 
 ### Request flow
