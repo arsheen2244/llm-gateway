@@ -1612,3 +1612,42 @@ raw data in `results/full-stack/`):
 streams, cache hits, the semantic layer (off, note 36), more than one machine, or anything about
 what limits the stack at 1,200/s beyond the consumer's backlog. With every component on 4 shared
 vCPUs, which one runs out first was not measured.
+
+## 44. Out of heap: exit and restart, instead of running on half-dead
+
+**What happened** (diagnostic run 45832600142, `scripts/diagnose_usage.py`): at 2,000 requests per
+second, far past what the stack sustains (note 43), one gateway ran out of heap
+(`OutOfMemoryError: Java heap space`). Each request runs on its own virtual thread and nothing
+limited how many were in flight, so slow requests piled up in a 384 MB heap. The error killed
+whichever threads happened to be allocating: Tomcat's acceptor and poller, and the Kafka producer's
+I/O thread. The JVM itself kept running.
+- **It still looked alive.** The container stayed "running", so Compose did nothing, and nginx
+  kept sending it a third of the traffic, which then failed. That explains why every earlier run
+  at 2,000/s failed almost exactly a third of its requests.
+- **Usage events were lost without a trace.** Events the sink had already handed to the Kafka
+  producer could never be sent, and no counter covers events inside the producer: they were neither
+  sent, nor dropped, nor queued. This is the likely cause of the 13 events missing in an earlier
+  run at 1,600/s.
+- In the same workflow, a run where no gateway ran out of heap matched at every stage (258,619
+  events created, sent, in Kafka and in PostgreSQL).
+
+**Decision:** both JVM images run with `-XX:+ExitOnOutOfMemoryError`, and the gateways and the
+usage consumer have `restart: unless-stopped` in Compose.
+- A JVM that runs out of heap is in an unknown state: any thread may have died halfway through
+  something. Exiting and starting clean is the only state that is known to be correct.
+- While a gateway is down, nginx gets connection errors from it and skips it for 10 seconds
+  (its defaults, `max_fails=1 fail_timeout=10s`), so the other two take the traffic.
+- `unless-stopped` rather than `always`: a container stopped or killed on purpose (the
+  reconciliation test kills the consumer with `docker compose kill`) stays stopped.
+
+**Rejected:**
+- *A larger heap.* It moves the point where it breaks; with no limit on requests in flight,
+  enough load still runs it out.
+- *A heap dump on the error* (`-XX:+HeapDumpOnOutOfMemoryError`). Useful when the cause is unknown;
+  here it is known, and a few hundred MB per crash would fill the disk of a restarting container.
+- *A health check that restarts the container.* Compose doesn't restart unhealthy containers on its
+  own, and a check would only notice after several failed probes.
+
+**What this does not fix:** the crash still loses the events that gateway had not yet sent, and
+nothing counts them (the README's limitations say so). The cause, unlimited requests in flight,
+is note 45.

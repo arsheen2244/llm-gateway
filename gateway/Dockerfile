@@ -25,4 +25,6 @@ COPY --from=build /src/gateway/target/gateway-0.1.0-SNAPSHOT.jar app.jar
 USER app
 EXPOSE 8080
 # Size the heap from the container's memory limit, not the host's.
-ENTRYPOINT ["java", "-XX:MaxRAMPercentage=75", "-jar", "/app/app.jar"]
+# Out of heap: exit instead of running on with dead threads, so Compose restarts it
+# (design note 44).
+ENTRYPOINT ["java", "-XX:MaxRAMPercentage=75", "-XX:+ExitOnOutOfMemoryError", "-jar", "/app/app.jar"]

@@ -17,6 +17,8 @@ x-gateway: &gateway
     context: .
     dockerfile: gateway/Dockerfile
   image: llm-gateway/gateway:local
+  # A gateway that exits (it does when out of heap) comes back on its own (design note 44).
+  restart: unless-stopped
   environment:
     # Inside the Compose network, services reach each other by service name.
     MOCK_PROVIDER_URL: http://mock-provider:8081
@@ -109,6 +111,7 @@ services:
       context: .
       dockerfile: usage-consumer/Dockerfile
     image: llm-gateway/usage-consumer:local
+    restart: unless-stopped   # design note 44
     environment:
       SPRING_PROFILES_ACTIVE: local   # made-up prices for the mock models
       KAFKA_BOOTSTRAP_SERVERS: kafka:9092
