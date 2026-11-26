@@ -17,7 +17,6 @@ exactly‑once usage and cost accounting · metrics
 ![PostgreSQL](https://img.shields.io/badge/PostgreSQL-17-4169E1?logo=postgresql&logoColor=white)
 ![Prometheus](https://img.shields.io/badge/Prometheus-metrics-E6522C?logo=prometheus&logoColor=white)
 ![Grafana](https://img.shields.io/badge/Grafana-dashboard-F46800?logo=grafana&logoColor=white)
-<br/>
 ![nginx](https://img.shields.io/badge/nginx-load%20balancer-009639?logo=nginx&logoColor=white)
 ![Docker](https://img.shields.io/badge/Docker%20Compose-2496ED?logo=docker&logoColor=white)
 ![k6](https://img.shields.io/badge/k6-load%20tests-7D64FF?logo=k6&logoColor=white)
@@ -48,10 +47,10 @@ mock provider.
 
 <table>
   <tr>
-    <td align="center" width="25%"><h3>1,000 req/s</h3>sustained through the full stack, every feature on, 0 failed<br/><sub><a href="#full-stack-under-load-measured-2026-11-26">full-stack load test</a></sub></td>
-    <td align="center" width="25%"><h3>+3.3 ms</h3>median latency the full stack adds at 100 req/s<br/><sub><a href="#full-stack-under-load-measured-2026-11-26">full-stack load test</a></sub></td>
-    <td align="center" width="25%"><h3>900 / 900</h3>requests billed exactly after killing the usage consumer mid-run<br/><sub><a href="#measured-kill-the-consumer-count-everything-2026-11-25">reconciliation</a></sub></td>
-    <td align="center" width="25%"><h3>+0.0%</h3>rate-limit drift across 3 instances sharing Redis (vs +200% without)<br/><sub><a href="#measured-drift-shared-vs-per-instance-2026-11-17">drift test</a></sub></td>
+    <td align="center" valign="top" width="25%"><h3>1,000 req/s</h3>sustained through the full stack, every feature on, 0 failed<br/><sub><a href="#full-stack-under-load-measured-2026-11-26">full-stack load test</a></sub></td>
+    <td align="center" valign="top" width="25%"><h3>+3.3 ms</h3>median latency the full stack adds at 100 req/s<br/><sub><a href="#full-stack-under-load-measured-2026-11-26">full-stack load test</a></sub></td>
+    <td align="center" valign="top" width="25%"><h3>900 / 900</h3>requests billed exactly after killing the usage consumer mid-run<br/><sub><a href="#measured-kill-the-consumer-count-everything-2026-11-25">reconciliation</a></sub></td>
+    <td align="center" valign="top" width="25%"><h3>+0.0%</h3>rate-limit drift across 3 instances sharing Redis (vs +200% without)<br/><sub><a href="#measured-drift-shared-vs-per-instance-2026-11-17">drift test</a></sub></td>
   </tr>
 </table>
 
