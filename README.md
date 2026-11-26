@@ -2,7 +2,13 @@
 
 # 🚦 LLM Gateway
 
-**One OpenAI‑compatible endpoint in front of every LLM provider, with routing, streaming, token‑aware rate limiting, production‑grade resilience, a response cache, exactly‑once usage and cost accounting, and metrics.**
+### One OpenAI‑compatible endpoint in front of every LLM provider
+
+Routing · streaming · token‑aware rate limiting · resilience · response cache ·
+exactly‑once usage and cost accounting · metrics
+
+[![CI](https://github.com/arsheen2244/llm-gateway/actions/workflows/ci.yml/badge.svg)](https://github.com/arsheen2244/llm-gateway/actions/workflows/ci.yml)
+[![Full-stack load test](https://github.com/arsheen2244/llm-gateway/actions/workflows/full-stack-load.yml/badge.svg)](https://github.com/arsheen2244/llm-gateway/actions/workflows/full-stack-load.yml)
 
 ![Java](https://img.shields.io/badge/Java-21%20·%20virtual%20threads-ED8B00?logo=openjdk&logoColor=white)
 ![Spring Boot](https://img.shields.io/badge/Spring%20Boot-3-6DB33F?logo=springboot&logoColor=white)
@@ -11,12 +17,19 @@
 ![PostgreSQL](https://img.shields.io/badge/PostgreSQL-17-4169E1?logo=postgresql&logoColor=white)
 ![Prometheus](https://img.shields.io/badge/Prometheus-metrics-E6522C?logo=prometheus&logoColor=white)
 ![Grafana](https://img.shields.io/badge/Grafana-dashboard-F46800?logo=grafana&logoColor=white)
+<br/>
 ![nginx](https://img.shields.io/badge/nginx-load%20balancer-009639?logo=nginx&logoColor=white)
 ![Docker](https://img.shields.io/badge/Docker%20Compose-2496ED?logo=docker&logoColor=white)
 ![k6](https://img.shields.io/badge/k6-load%20tests-7D64FF?logo=k6&logoColor=white)
 ![Testcontainers](https://img.shields.io/badge/Testcontainers-291A3F)
 ![OpenAI](https://img.shields.io/badge/OpenAI-adapter-412991?logo=openai&logoColor=white)
 ![Anthropic](https://img.shields.io/badge/Anthropic-adapter-D97757?logo=anthropic&logoColor=white)
+
+**[Quick start](#-quick-start)** ·
+**[Architecture](#%EF%B8%8F-architecture)** ·
+**[Benchmarks](#-benchmarks)** ·
+**[Limitations](#%EF%B8%8F-limitations)** ·
+**[Design notes](docs/design-notes.md)**
 
 </div>
 
@@ -25,18 +38,100 @@
 A proxy that sits in front of LLM provider APIs. Clients call **one OpenAI-compatible
 endpoint**. The gateway routes each request to the right provider (OpenAI, Anthropic,
 or a local mock), translates between their formats, and relays streaming responses.
-
 Built with Java 21 and Spring Boot 3 (Spring MVC on **virtual threads**: plain blocking
 code that still handles many open streams).
 
+## 📊 At a glance
+
+Measured, not estimated: every number links to its section and can be reproduced. All against the
+mock provider.
+
+<table>
+  <tr>
+    <td align="center" width="25%"><h3>1,000 req/s</h3>sustained through the full stack, every feature on, 0 failed<br/><sub><a href="#full-stack-under-load-measured-2026-11-26">full-stack load test</a></sub></td>
+    <td align="center" width="25%"><h3>+3.3 ms</h3>median latency the full stack adds at 100 req/s<br/><sub><a href="#full-stack-under-load-measured-2026-11-26">full-stack load test</a></sub></td>
+    <td align="center" width="25%"><h3>900 / 900</h3>requests billed exactly after killing the usage consumer mid-run<br/><sub><a href="#measured-kill-the-consumer-count-everything-2026-11-25">reconciliation</a></sub></td>
+    <td align="center" width="25%"><h3>+0.0%</h3>rate-limit drift across 3 instances sharing Redis (vs +200% without)<br/><sub><a href="#measured-drift-shared-vs-per-instance-2026-11-17">drift test</a></sub></td>
+  </tr>
+</table>
+
+> [!NOTE]
 > **Status: all five weeks done.** The core proxy, streaming, two provider adapters, a mock
 > provider, API-key auth, distributed token-aware rate limiting, resilience (deadlines,
 > circuit breakers, retries, failover, hedging), a response cache, usage and cost accounting
 > through Kafka into PostgreSQL, and Prometheus metrics with a Grafana dashboard.
-> **Measured:** 1,000 requests per second through the full stack with every feature on, no
-> request failed and no usage event lost ([Benchmarks](#benchmarks)).
 
-## What it does today
+## ✨ Features
+
+<table>
+  <tr>
+    <td width="50%" valign="top">
+
+**🔌 One API, many providers**<br/>
+OpenAI-compatible `POST /v1/chat/completions`, normal and streaming (SSE). Adapters for
+OpenAI and Anthropic translate requests, streams and errors both ways.
+
+</td>
+    <td width="50%" valign="top">
+
+**⏱️ Token-aware rate limiting**<br/>
+Requests and tokens per minute over a sliding window, enforced atomically in Redis by Lua,
+shared by every instance. `429` with `Retry-After`.
+
+</td>
+  </tr>
+  <tr>
+    <td valign="top">
+
+**🛡️ Resilience**<br/>
+Deadlines on every call, a circuit breaker per provider, retries with jittered backoff and a
+budget, ordered failover and hedged requests.
+
+</td>
+    <td valign="top">
+
+**⚡ Response cache**<br/>
+Identical low-temperature requests answered from Redis, also replayed as streams. A semantic
+layer was built, measured, and left off because it served wrong answers.
+
+</td>
+  </tr>
+  <tr>
+    <td valign="top">
+
+**💰 Usage and cost accounting**<br/>
+One event per request through Kafka, recorded in PostgreSQL exactly once and priced in exact
+decimals. `GET /v1/usage` shows a key its own usage.
+
+</td>
+    <td valign="top">
+
+**📈 Metrics and dashboard**<br/>
+Prometheus histograms and a provisioned Grafana dashboard: request rate, latency, errors,
+breakers, rejections, cache hits, lost events.
+
+</td>
+  </tr>
+  <tr>
+    <td valign="top">
+
+**🧪 A realistic mock provider**<br/>
+Speaks OpenAI and Anthropic formats with configurable latency, errors and mid-stream
+failures. Every test and benchmark runs against it.
+
+</td>
+    <td valign="top">
+
+**🐳 Production-shaped deployment**<br/>
+nginx in front of three gateways, plus Redis, Kafka, PostgreSQL, the usage consumer,
+Prometheus and Grafana, in one `docker compose up`.
+
+</td>
+  </tr>
+</table>
+
+<details>
+<summary><b>Full feature list</b></summary>
 
 - `POST /v1/chat/completions`, compatible with OpenAI's API, both normal and streaming (SSE)
 - Adapters for **OpenAI** and **Anthropic**: an OpenAI-format request to a `claude-*`
@@ -74,6 +169,8 @@ code that still handles many open streams).
   PostgreSQL, the usage consumer, Prometheus and Grafana; k6 tests (latency overhead,
   rate-limit drift, resilience, full stack); GitHub Actions CI
 
+</details>
+
 ## 🧰 Tech stack
 
 | Layer | Technology |
@@ -91,7 +188,7 @@ code that still handles many open streams).
 | Testing | JUnit 5, Spring Boot Test, Testcontainers (Redis, Kafka, PostgreSQL), k6 (overhead, rate‑limit drift, resilience, full stack) with Python report scripts |
 | CI | GitHub Actions |
 
-## Quick start
+## 🚀 Quick start
 
 ### With Docker
 
@@ -106,6 +203,9 @@ instances, which share rate limits and the cache through Redis. The mock is on
 `RATE_LIMIT_BACKEND=in-memory docker compose up` switches to per-instance limits (the
 baseline from the drift measurement).
 
+<details>
+<summary><b>Without Docker</b></summary>
+
 ### Without Docker
 
 Requires Java 21. The Maven wrapper downloads Maven itself.
@@ -119,6 +219,8 @@ java -jar gateway/target/gateway-0.1.0-SNAPSHOT.jar --spring.profiles.active=loc
 (On Windows use `mvnw.cmd`. Run the two `java` commands in separate terminals.) Without
 Docker there is one instance and no Redis, so the default in-memory rate limiter is used,
 usage events only go to the log, and `GET /v1/usage` answers 503 (no database).
+
+</details>
 
 ### Try it
 
@@ -154,6 +256,9 @@ Your usage and cost so far (UTC days; `from` and `to` are optional, e.g. `?from=
 curl http://localhost:8080/v1/usage -H "Authorization: Bearer local-dev-key"
 ```
 
+<details>
+<summary><b>Using real providers</b></summary>
+
 ### Using real providers
 
 Set the keys as environment variables (or copy `.env.example` to `.env`, which is
@@ -167,7 +272,9 @@ export ANTHROPIC_API_KEY=sk-ant-...
 Then use real model names, e.g. `gpt-4o-mini` or `claude-sonnet-4-5`. Without a key,
 those models return `503 provider_not_configured`.
 
-## Architecture
+</details>
+
+## 🏗️ Architecture
 
 ```mermaid
 flowchart TB
@@ -197,7 +304,21 @@ flowchart TB
 
     REQ -->|one usage event per request, async| ACC
     ACC ~~~ MET
+
+    classDef edge fill:#e0f2fe,stroke:#0369a1,color:#0c4a6e
+    classDef core fill:#ede9fe,stroke:#6d28d9,color:#2e1065
+    classDef store fill:#fee2e2,stroke:#b91c1c,color:#450a0a
+    classDef usage fill:#dcfce7,stroke:#15803d,color:#052e16
+    classDef metrics fill:#ffedd5,stroke:#c2410c,color:#431407
+    class C,N,F edge
+    class U,RL,CA,EX,PR core
+    class Q,CO,UC usage
+    class K,PG store
+    class M,PM,G metrics
 ```
+
+<details>
+<summary><b>Request flow, step by step</b></summary>
 
 ### Request flow
 
@@ -228,6 +349,8 @@ flowchart TB
    (a separate service) records it in **PostgreSQL** and adds it to the client's daily
    totals, in one transaction, only if its event ID is new.
 
+</details>
+
 ### Key ideas
 
 | Idea | Where | Why |
@@ -244,6 +367,9 @@ flowchart TB
 | Usage never blocks a request | `KafkaUsageSink` | A request only offers its event to a queue; Kafka being down costs memory, then counted losses, never latency |
 | At-least-once delivery, exactly-once totals | `UsageStore` | Redelivery is allowed anywhere; the event ID as primary key makes the second copy a no-op |
 | One request metric, from the usage event | `RequestMetrics` | Dashboard and bill can't disagree; histograms add up across instances, percentiles don't |
+
+<details>
+<summary><b>How failures look to the client</b></summary>
 
 ### How failures look to the client
 
@@ -265,6 +391,11 @@ flowchart TB
 | Stream breaks **after** it started | the `200` is already sent, so a final `data: {"error": {..., "code": "stream_interrupted"}}` event, and no `[DONE]` |
 
 All errors use OpenAI's error format, so OpenAI client libraries handle them normally.
+
+</details>
+
+<details>
+<summary><b>Project layout</b></summary>
 
 ### Project layout
 
@@ -296,7 +427,9 @@ results/                       measured outputs (cache threshold, full-stack loa
 docs/design-notes.md           every significant decision, with the alternatives rejected
 ```
 
-## The mock provider
+</details>
+
+## 🧪 The mock provider
 
 It answers in OpenAI's format at `/v1/chat/completions` and in Anthropic's at
 `/v1/messages`, including their real streaming event formats and error shapes. It also
@@ -315,7 +448,7 @@ Random behaviour is set with environment variables:
 A model name can force an outcome, which keeps tests deterministic: `mock-error-503`
 returns HTTP 503, and `mock-fail-after-2` streams two chunks and then drops the connection.
 
-## Rate limiting
+## ⏱️ Rate limiting
 
 Each client (configured under `gateway.auth.clients`) has a **requests-per-minute** and a
 **tokens-per-minute** limit over a **sliding window**:
@@ -351,7 +484,7 @@ The shared limiter holds exactly; per-instance limiting lets through about one f
 per instance. Tokens err slightly on the strict side because in-flight requests hold their
 estimate until reconciled. Method and caveats: design note 24.
 
-## Resilience
+## 🛡️ Resilience
 
 - **Deadlines:** connect, idle, first byte, total (non-streaming) and a maximum stream
   duration (long, healthy streams aren't cut off by the total).
@@ -381,7 +514,7 @@ on GitHub Actions (`load-test/resilience.js`; design note 31 has the method and 
 
 During the outage the dead provider received 69 calls in 90 s instead of up to 3,600.
 
-## Response cache
+## ⚡ Response cache
 
 - **Exact layer (on):** a request is cached only if it explicitly sets `temperature` ≤ 0.3.
   The key is a hash of the client, model, system prompt, sampling settings and the normalized
@@ -415,7 +548,7 @@ Design note 36 has the cases it still gets wrong and what was considered instead
 Reproduce: Actions tab → *Cache threshold sweep* → *Run workflow*, or
 `docker compose --profile semantic up -d embeddings` then `python eval/sweep_threshold.py`.
 
-## Usage and cost accounting
+## 💰 Usage and cost accounting
 
 - **One event per request**, recorded by the first interceptor in the chain, so it sees every
   outcome: answered by a provider or the cache, rate-limited, failed, or abandoned by the client.
@@ -458,7 +591,7 @@ own JVM killed twice mid-backlog, and every client's daily totals compared with 
 itself. It runs on every CI build, once with offsets committed per event (production) and once in
 batches of up to 500, which makes redelivery certain. Design note 41.
 
-## Metrics and dashboard
+## 📈 Metrics and dashboard
 
 `http://localhost:3000` in Docker Compose (no login needed to look). The dashboard is a file in
 [deploy/grafana/dashboards](deploy/grafana/dashboards/llm-gateway.json), loaded at startup.
@@ -477,11 +610,14 @@ over-limit requests and failures that open the mock-anthropic breaker. Not a ben
   exactly the successes, rejections, failures and cache hits the clients saw, and that every
   panel's query returns data. Design note 42.
 
-## Tests
+## ✅ Tests
 
 ```bash
 ./mvnw verify
 ```
+
+<details>
+<summary><b>What the tests cover</b></summary>
 
 Unit tests cover routing, error mapping, SSE parsing, the interceptor chain and the
 Anthropic translation. Integration tests start the gateway **and the real mock provider**
@@ -508,16 +644,19 @@ pricing, plus Testcontainers tests against a real Kafka (a broker paused mid-run
 a real PostgreSQL (redelivery, four threads recording the same events, prices over time, the
 read-only role, a paused database), and the reconciliation test above.
 
+</details>
+
 CI (GitHub Actions) runs every test, including those that need Docker (Redis, Kafka, PostgreSQL), and
 reports failures and those tests' counts as annotations visible without signing in. It then starts
 the full Compose stack and runs, against it: `scripts/smoke-test.sh`, `scripts/check-usage.sh`
 (requests become exactly that many priced events, and `/v1/usage` matches the database),
 `scripts/reconcile_usage.py` (the kill test above) and `scripts/check_metrics.py` (the dashboard).
 
-## Benchmarks
+## 📊 Benchmarks
 
-Only measured results, each with how to reproduce it. All of them use the mock provider, never a
-real one.
+> [!IMPORTANT]
+> Only measured results, each with how to reproduce it. All of them use the mock provider, never a
+> real one.
 
 | What | Result | Measured | Where | Reproduce |
 |---|---|---|---|---|
@@ -576,6 +715,9 @@ bash load-test/full_stack.sh 100 400 1000
 python3 load-test/full_stack_report.py
 ```
 
+<details>
+<summary><b>Gateway alone (measured 2026-11-16)</b></summary>
+
 ### Gateway alone (measured 2026-11-16)
 
 `load-test/gateway-overhead.js` sends identical requests directly to the mock and through one
@@ -600,6 +742,11 @@ k6 v2.2.0, the gateway and the mock all on the same machine and talking over loc
 JDK 21.0.2, both apps run as jars (not in Docker) with
 `-Xmx192m -XX:MaxMetaspaceSize=128m -XX:ReservedCodeCacheSize=64m -Xss512k -XX:+UseSerialGC`.
 The machine had under 2 GB of free memory, so the JVMs were capped.
+
+</details>
+
+<details>
+<summary><b>The 15 ms that turned out to be a bug</b></summary>
 
 ### The 15 ms that turned out to be a bug
 
@@ -630,9 +777,12 @@ smaller than the noise. That is why the headline table above uses a zero-latency
   percentile. It includes the extra localhost hop, not just gateway code.
 - Under load, `-Djdk.tracePinnedThreads=short` reported **zero** pinned virtual threads.
 
-## Limitations
+</details>
 
-What this project does not do, or has not shown. Each is discussed in the design notes.
+## ⚠️ Limitations
+
+> [!WARNING]
+> What this project does not do, or has not shown. Each is discussed in the design notes.
 
 - **Measured only against a mock.** Real providers take seconds and fail in their own ways; the
   millisecond numbers here are the gateway's cost, not a user's experience.
@@ -656,7 +806,7 @@ What this project does not do, or has not shown. Each is discussed in the design
   passwords are in Compose for convenience; dead letters are kept but not replayed; `usage_events`
   is not partitioned or pruned.
 
-## Roadmap
+## 🗺️ Roadmap
 
 1. ✅ Core proxy with streaming, OpenAI and Anthropic adapters, mock provider
 2. ✅ Distributed token-aware rate limiting (Redis + Lua, 3 gateway instances)
@@ -666,7 +816,14 @@ What this project does not do, or has not shown. Each is discussed in the design
 5. ✅ Usage and cost accounting via Kafka into PostgreSQL (exactly-once totals, checked by
    killing the consumer), `GET /v1/usage`, Prometheus and Grafana, full-stack load test
 
-## Design decisions
+## 📝 Design decisions
 
 Every significant choice, including what was rejected and why, is in
 [docs/design-notes.md](docs/design-notes.md).
+
+---
+
+<div align="center">
+<sub>Built as a portfolio project · every design decision, with the alternatives rejected, is in
+<a href="docs/design-notes.md">docs/design-notes.md</a></sub>
+</div>
