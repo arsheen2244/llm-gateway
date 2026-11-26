@@ -17,14 +17,16 @@ STREAM_BODY='{"model":"mock-gpt","stream":true,"messages":[{"role":"user","conte
 post() { curl -s -X POST -H 'Content-Type: application/json' -H "Authorization: Bearer $KEY" "$@"; }
 
 echo "Waiting for gateway at $GATEWAY ..."
-# Wait for a real 200: behind nginx, a 502 only means "no gateway instance is up yet".
+# Wait for real 200s: behind nginx, a 502 means the instance nginx picked isn't up yet. Six in a
+# row means every instance answered (nginx takes them in turn), not just the first one to start.
 status=000
-for _ in $(seq 1 90); do
+in_a_row=0
+for _ in $(seq 1 120); do
   status=$(post -o /dev/null -w '%{http_code}' -d "$BODY" "$URL" || true)
-  [ "$status" = "200" ] && break
-  sleep 2
+  if [ "$status" = "200" ]; then in_a_row=$((in_a_row + 1)); else in_a_row=0; sleep 2; fi
+  [ "$in_a_row" -ge 6 ] && break
 done
-[ "$status" = "200" ] || { echo "FAIL: gateway never answered 200 (last status: $status)"; exit 1; }
+[ "$in_a_row" -ge 6 ] || { echo "FAIL: gateways never all answered 200 (last status: $status)"; exit 1; }
 
 echo "1) Non-streaming request"
 response=$(post -S -f -d "$BODY" "$URL")

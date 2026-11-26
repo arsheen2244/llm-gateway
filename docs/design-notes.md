@@ -1546,3 +1546,69 @@ breaks the build, not the dashboard.
 - No alerts are defined.
 - With `gateway.usage.enabled=false` there are no request metrics either.
 - Latency is recorded in whole milliseconds, so most cache hits show as 0 or 1 ms.
+
+## 43. Full-stack load test: 1,000 requests per second, and what limits it
+
+**Setup** (`load-test/full-stack.js`, `full_stack.sh`, workflow *Full-stack load test*): the whole
+Compose stack with every feature on (nginx, three gateways, Redis rate limits and cache, usage events
+through Kafka into PostgreSQL, Prometheus and Grafana), against the mock provider answering after
+a fixed 100 ms. Everything, k6 included, shares one GitHub runner with 4 vCPUs.
+- **Open model:** k6 starts requests at a fixed rate whatever the answers do. A closed model (a fixed
+  number of virtual users) slows down with the system under test and hides how far behind it falls.
+- **Each rate twice, one after the other:** 60 s straight to the mock, then 60 s through the gateways.
+  *Added latency* is a percentile through the gateways minus the same percentile straight to the
+  mock: a difference of percentiles, not a percentile of per-request differences.
+- **A rate counts as sustained only with no failed request and no request k6 had to skip** (it
+  ran out of virtual users because answers were too slow). Otherwise its latency isn't reported.
+- **Every prompt is new, at temperature 0:** the cache looks each one up and stores its answer, its
+  most expensive path. Non-streaming only.
+- **Accounting is checked at every rate:** each answer carrying a gateway's `X-Request-Id` must appear
+  in PostgreSQL. The script records how far behind the consumer was when the load stopped, and how
+  long it took to catch up.
+- **Three repetitions, each on its own runner**, because shared cloud machines vary (even the CPU model).
+
+**Results** (run 45755495967; runs 2 and 3, both AMD EPYC 7763; run 1 failed in setup, see below;
+raw data in `results/full-stack/`):
+
+| Rate | Failed | Added p50 | Added p95 | Added p99 | Consumer behind at end |
+|---|---|---|---|---|---|
+| 100/s | 0 / 0 | +3.3 / +3.7 ms | +8.7 / +8.8 ms | +12.9 / +13.7 ms | 0 / 0 |
+| 400/s | 0 / 0 | +4.3 / +4.2 ms | +19.5 / +21.7 ms | +45.8 / +47.9 ms | 0 / 0 |
+| 800/s | 0 / 0 | +8.2 / +7.1 ms | +39.0 / +21.1 ms | +93.3 / +35.1 ms | 18,022 / 16,936 |
+| 1,000/s | 0 / 0 | +15.2 / +15.3 ms | +53.7 / +55.5 ms | +93.5 / +84.7 ms | 34,608 / 34,565 |
+| 1,200/s | 163 / 0 failed, 18,543 / 64 skipped | not sustained | | | |
+
+- **Highest rate sustained: 1,000 requests per second** in both runs (60,000 and 60,001 requests,
+  none failed). At 1,200/s, run 2 fell apart (p99 14 s, 18,543 requests skipped) and run 3 skipped 64;
+  1,600 and 2,000 failed in both.
+- **Nothing was lost.** At every rate, in both runs, every request a gateway answered was recorded
+  in PostgreSQL exactly once. (At 1,600/s run 3 has 3 more events than answers: requests a gateway
+  received after k6 had given up waiting for them.)
+- **The usage consumer is the slowest part**, at 840–970 events per second while catching up
+  (measured from 600/s up), close to the 1,000/s limit. Above roughly 600/s it falls behind during the load and catches up
+  afterwards (36 s after a minute at 1,000/s). Requests are unaffected (that is the point of
+  the queue, notes 38–39), but `/v1/usage` is late by that much. Batching inserts (note 39) is the
+  next step if that matters.
+- **Added latency grows with load,** because all of it shares 4 vCPUs. At 100/s the whole stack
+  (nginx hop, auth, a Redis rate-limit script, a Redis cache lookup and store, usage event, metrics)
+  adds about 3–4 ms at p50. Week 1's 1–2 ms was the gateway alone, with none of those.
+- **Run to run, p50 agrees within about 1 ms; the tail varies more** (p99 at 800/s: 93 and 35 ms).
+  Two runs on one CPU model are not enough for tight error bars; the table shows both, not an
+  average.
+
+**What was wrong at first, and fixed:**
+- **nginx was the limit, not the gateway.** The first runs failed at about 1,000/s with connections
+  closed and HTML 500 pages, which the gateways never send. nginx ran with its defaults: one worker
+  process and 512 connections (counting those to the gateways), and it closed each client connection
+  after 1,000 requests, while the client might already be sending the next one. Now: one worker per
+  CPU, 8,192 connections each, and long-lived keep-alive.
+- **The accounting check counted nginx's own errors as gateway answers.** It now counts only answers
+  with `X-Request-Id`.
+- **One run tells you little.** The first runs, on different CPU models, differed by 2–3x in tail latency.
+- **Run 1 got a 502 from nginx before the measurement:** the smoke test had seen one gateway answer
+  and moved on while another was still starting. It now waits for six 200s in a row.
+
+**What this does not show:** real providers (whose seconds of latency dwarf these milliseconds),
+streams, cache hits, the semantic layer (off, note 36), more than one machine, or anything about
+what limits the stack at 1,200/s beyond the consumer's backlog. With every component on 4 shared
+vCPUs, which one runs out first was not measured.
