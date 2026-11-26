@@ -37,6 +37,8 @@ for rate in "${RATES[@]}"; do
   before=$(recorded)
   k6 run --quiet -e TARGET=gateway -e RATE="$rate" -e SECONDS="$SECONDS_PER_PHASE" \
     -e OUT="$OUT_DIR/gateway-$rate.json" load-test/full-stack.js
+  # Peak requests in flight, heap and restarts per gateway during the phase (design note 45).
+  python3 load-test/overload_snapshot.py "$SECONDS_PER_PHASE" "$OUT_DIR/overload-$rate.json" || true
   expected=$(( before + $(python3 -c "import json; print(int(json.load(open('$OUT_DIR/gateway-$rate.json'))['answered']))") ))
   # The usage consumer: how many requests were still unrecorded when the load stopped, and
   # how long it then took to record them all (at most 300 s).

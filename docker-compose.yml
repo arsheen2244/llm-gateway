@@ -44,6 +44,8 @@ x-gateway: &gateway
     USAGE_DB_READER_PASSWORD: ${USAGE_DB_READER_PASSWORD:-local-only-reader}
     # Three JVMs on one machine: keep each heap modest.
     JAVA_TOOL_OPTIONS: -Xmx384m
+    # Load shedding: at most this many requests in flight per instance (design note 45).
+    GATEWAY_OVERLOAD_MAX_IN_FLIGHT: ${GATEWAY_OVERLOAD_MAX_IN_FLIGHT:-1000}
     OPENAI_API_KEY: ${OPENAI_API_KEY:-}
     ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
   depends_on:

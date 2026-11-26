@@ -29,17 +29,30 @@ def sustained(run):
     return run["errorRate"] == 0 and run["droppedIterations"] == 0
 
 
+def overload(o):
+    """Peak in flight, peak heap and restarts: the highest of any gateway (design note 45)."""
+    if not o:
+        return "- | - | -"
+    peak = max(v.get("peakInFlight", 0) for v in o.values())
+    heap = max(v.get("peakHeapMb", 0) for v in o.values())
+    limit = max(v.get("heapMaxMb", 0) for v in o.values())
+    restarts = sum(v.get("restarts", 0) for v in o.values())
+    down = sum(1 for v in o.values() if v.get("minUp", 1) == 0)
+    return f"{peak} | {heap} of {limit} MB | {restarts}" + (f" ({down} unreachable)" if down else "")
+
+
 def main():
     rates = sorted(int(p.stem.split("-")[1]) for p in DIR.glob("gateway-*.json"))
-    lines = ["| Rate (req/s) | Achieved | Failed | Dropped | Added p50 | Added p95 | Added p99 "
-             "| Gateway p99 | Mock p99 | Consumer backlog at end | Caught up in | Consumer rate |",
-             "|---|---|---|---|---|---|---|---|---|---|---|---|"]
+    lines = ["| Rate (req/s) | Achieved | Failed | Shed | Dropped | Added p50 | Added p95 | Added p99 "
+             "| Gateway p99 | Mock p99 | Consumer backlog at end | Caught up in | Consumer rate "
+             "| Peak in flight | Peak heap | Restarts |",
+             "|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|"]
     best = None
     for rate in rates:
         g, d, c = load(f"gateway-{rate}.json"), load(f"direct-{rate}.json"), load(f"consumer-{rate}.json")
         if not sustained(d):
             lines.append(f"| {rate} | mock alone could not sustain this rate; not a gateway result |"
-                         + " |" * 10)
+                         + " |" * 14)
             continue
         ok = sustained(g)
         added = [f"{g[k] - d[k]:+.1f} ms" if ok else "n/a" for k in ("p50", "p95", "p99")]
@@ -49,8 +62,10 @@ def main():
         # enough of a backlog to measure.
         consumer += (f" | {c['backlogAtEnd'] / c['catchUpSeconds']:.0f}/s"
                      if c and c["caughtUp"] and c["backlogAtEnd"] >= 2000 else " | -")
-        lines.append(f"| {rate} | {g['achievedRate']:.1f} | {failed(g)} of {g['requests']} | {g['droppedIterations']} | "
-                     + " | ".join(added) + f" | {g['p99']:.1f} ms | {d['p99']:.1f} ms | {consumer} |")
+        lines.append(f"| {rate} | {g['achievedRate']:.1f} | {failed(g)} of {g['requests']} | {g.get('shed', '-')} "
+                     f"| {g['droppedIterations']} | "
+                     + " | ".join(added) + f" | {g['p99']:.1f} ms | {d['p99']:.1f} ms | {consumer} | "
+                     + overload(load(f"overload-{rate}.json")) + " |")
         if ok:
             best = rate
     lines.append("")
