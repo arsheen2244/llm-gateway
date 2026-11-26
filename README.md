@@ -170,31 +170,30 @@ those models return `503 provider_not_configured`.
 ## Architecture
 
 ```mermaid
-flowchart LR
-    C[Client<br/>OpenAI SDK, curl] -->|POST /v1/chat/completions<br/>GET /v1/usage| N[nginx<br/>round robin]
-    N --> F
-
-    subgraph GW[Gateway instance x3]
-        direction TB
-        F[Filters<br/>request ID, API key] --> P[ChatPipeline]
-        P --> U[UsageInterceptor<br/>one event per request]
+flowchart TB
+    subgraph REQ["Request path: nginx, then any of 3 gateway instances"]
+        direction LR
+        C[Client<br/>OpenAI SDK, curl] --> N[nginx<br/>round robin]
+        N --> F[Filters<br/>request ID, API key]
+        F --> U[UsageInterceptor<br/>one event per request]
         U --> RL[RateLimitInterceptor<br/>reserve, 429, reconcile]
         RL --> CA[CacheInterceptor<br/>exact match, X-Cache]
-        CA --> EX[ResilientExecutor<br/>breakers, retries, failover, hedging]
-        EX --> A[Adapters<br/>OpenAI, Anthropic]
-        U --> Q[KafkaUsageSink<br/>bounded queue]
-        F --> UC[UsageController]
+        CA --> EX[ResilientExecutor<br/>breakers, retries,<br/>failover, hedging]
+        EX --> PR[Adapters<br/>OpenAI, Anthropic,<br/>or the mock]
+        RL <-->|Lua| RD[(Redis 8<br/>limits, cache)]
+        CA <--> RD
     end
 
-    RL <-->|Lua scripts| RD[(Redis 8<br/>rate-limit windows,<br/>cached answers)]
-    CA <--> RD
-    A --> PR[OpenAI, Anthropic<br/>or the mock]
-    Q -->|async| K[[Kafka<br/>usage-events]]
-    K --> CO[usage-consumer<br/>exactly-once totals]
-    CO --> PG[(PostgreSQL<br/>events, daily totals,<br/>prices)]
-    UC -->|read-only role| PG
-    PM[Prometheus] -->|scrape :9091| GW
-    G[Grafana] --> PM
+    subgraph ACC["Accounting and metrics"]
+        direction LR
+        Q[KafkaUsageSink<br/>bounded queue,<br/>never blocks] --> K[[Kafka<br/>usage-events]]
+        K --> CO[usage-consumer<br/>exactly-once totals]
+        CO --> PG[(PostgreSQL<br/>events, daily totals,<br/>prices)]
+        UC[GET /v1/usage<br/>read-only role] --> PG
+        G[Grafana] --> PM[Prometheus<br/>scrapes each gateway]
+    end
+
+    REQ -->|each request's usage event,<br/>handed over asynchronously| ACC
 ```
 
 ### Request flow
