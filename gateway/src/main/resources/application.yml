@@ -26,6 +26,16 @@ logging:
       # (empty) for plain-text logs while developing.
       console: ecs
 
+# Metrics only, on a separate port, so the public port (and nginx) never serves them
+# (design note 42).
+management:
+  server:
+    port: ${MANAGEMENT_PORT:9091}
+  endpoints:
+    web:
+      exposure:
+        include: prometheus
+
 gateway:
   # Provider instances. "type" picks the adapter (the protocol); the rest says
   # where this instance lives. API keys come only from environment variables.
@@ -101,6 +111,21 @@ gateway:
       url: ${GATEWAY_CACHE_EMBEDDING_URL:http://localhost:8082}
       timeout: 500ms
       dimensions: 384         # BAAI/bge-small-en-v1.5
+
+  # One usage event per request, for accounting (design notes 37-38).
+  usage:
+    enabled: true
+    sink: log                   # 'kafka' to send events to Kafka (Docker Compose does)
+    kafka:
+      bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
+      topic: usage-events
+      queue-capacity: 100000    # events held in memory while Kafka is down; then dropped
+      delivery-timeout: 2m      # one send's time limit before the event is queued again
+      shutdown-timeout: 5s      # time to send what's still queued when stopping
+    report:                     # GET /v1/usage (design note 40); no URL: it answers 503
+      url: ${USAGE_DB_URL:}
+      username: ${USAGE_DB_READER_USER:usage_reader}
+      password: ${USAGE_DB_READER_PASSWORD:}
 
   # Per-client limits come from gateway.auth.clients (design notes 18-19).
   rate-limit:

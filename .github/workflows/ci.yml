@@ -51,13 +51,14 @@ jobs:
                }' */target/surefire-reports/*.txt | head -n 20
           echo "Failing tests in total: $(grep -h -c -E '<<< (FAILURE|ERROR)!' */target/surefire-reports/*.txt | paste -sd+ | bc)"
 
-      # Also public: did the Docker-only (Redis) tests run, or were they skipped? Plus the
-      # resilience tests, so their counts are visible without signing in.
-      - name: Report Redis and resilience test counts
+      # Also public: did the Docker-only (Redis, Kafka, PostgreSQL) tests run, or were they
+      # skipped? Plus the resilience tests, so their counts are visible without signing in.
+      - name: Report Docker-only and resilience test counts
         if: always()
         run: |
           reports=gateway/target/surefire-reports
-          for f in "$reports"/*Redis*.txt "$reports"/*TwoGateway*.txt "$reports"/*resilience*.txt; do
+          for f in "$reports"/*Redis*.txt "$reports"/*TwoGateway*.txt "$reports"/*resilience*.txt \
+              "$reports"/*Broker*.txt "$reports"/*JdbcUsageReader*.txt usage-consumer/target/surefire-reports/*.txt; do
             [ -f "$f" ] || continue
             echo "::notice title=$(basename "$f" .txt)::$(grep -m1 'Tests run' "$f")"
           done
@@ -79,6 +80,14 @@ jobs:
       - name: Smoke test through the gateway
         run: bash scripts/smoke-test.sh http://localhost:8080
 
+      # Requests through nginx end up in PostgreSQL exactly once (design note 39).
+      - name: Usage reaches PostgreSQL
+        run: bash scripts/check-usage.sh http://localhost:8080
+
+      # Known requests, the consumer killed partway, exact totals (design note 41).
+      - name: Usage reconciliation with the consumer killed
+        run: python3 scripts/reconcile_usage.py http://localhost:8080
+
       # The model downloads on first start, so allow a few minutes.
       - name: Embedding service answers
         run: bash scripts/check-embeddings.sh http://localhost:8082
@@ -86,6 +95,20 @@ jobs:
       # Embeds every labelled pair through the real service; prints no rates (design note 36).
       - name: Threshold sweep runs (check only)
         run: python3 eval/sweep_threshold.py --check-only
+
+      # Last, because it opens a breaker: every dashboard panel shows data (design note 42).
+      - name: Metrics and dashboard
+        run: python3 scripts/check_metrics.py http://localhost:8080
+
+      - name: Screenshot of the dashboard
+        run: |
+          google-chrome --headless=new --no-sandbox --disable-gpu --hide-scrollbars --window-size=1600,1250 \
+            --timeout=20000 --virtual-time-budget=20000 --screenshot=dashboard.png \
+            "http://localhost:3000/d/llm-gateway/llm-gateway?kiosk&from=now-5m&to=now&refresh="
+      - uses: actions/upload-artifact@v4
+        with:
+          name: grafana-dashboard
+          path: dashboard.png
 
       - name: Show logs on failure
         if: failure()

@@ -1,8 +1,9 @@
-# Three gateway instances behind nginx, sharing one Redis (rate limits, cache), plus the mock
-# and a local embedding service for the semantic cache.
+# Three gateway instances behind nginx, sharing one Redis (rate limits, cache), plus the mock,
+# Kafka, the usage consumer and PostgreSQL for usage accounting, and a local embedding service for the semantic cache.
 #   docker compose up --build
 # Entry point (nginx): http://localhost:8080      Mock (direct): http://localhost:8081
 # Embeddings (direct): http://localhost:8082
+# Grafana dashboard: http://localhost:3000      Prometheus: http://localhost:9090
 #
 # Rate-limit backend: RATE_LIMIT_BACKEND=redis (default, limits shared by all instances)
 # or RATE_LIMIT_BACKEND=in-memory (each instance counts on its own; the week-2 baseline).
@@ -31,6 +32,14 @@ x-gateway: &gateway
     #   GATEWAY_CACHE_SEMANTIC=true docker compose --profile semantic up
     GATEWAY_CACHE_SEMANTIC_ENABLED: ${GATEWAY_CACHE_SEMANTIC:-false}
     GATEWAY_CACHE_EMBEDDING_URL: http://embeddings:80
+    # Usage events go to Kafka (design note 38). If Kafka is down, requests still succeed and
+    # events wait in each instance's memory.
+    GATEWAY_USAGE_SINK: kafka
+    KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+    # GET /v1/usage reads daily totals with a role that can read only those (design note 40).
+    # The gateways don't wait for PostgreSQL either.
+    USAGE_DB_URL: jdbc:postgresql://postgres:5432/usage
+    USAGE_DB_READER_PASSWORD: ${USAGE_DB_READER_PASSWORD:-local-only-reader}
     # Three JVMs on one machine: keep each heap modest.
     JAVA_TOOL_OPTIONS: -Xmx384m
     OPENAI_API_KEY: ${OPENAI_API_KEY:-}
@@ -66,6 +75,97 @@ services:
       timeout: 2s
       retries: 15
 
+  # One Kafka broker in KRaft mode (no ZooKeeper), for usage events (design note 38).
+  # The gateways don't wait for it: usage must never hold up requests.
+  kafka:
+    image: apache/kafka:3.9.1
+    ports:
+      # From the host: localhost:29092. Inside Compose: kafka:9092.
+      - "29092:29092"
+    environment:
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_LISTENERS: INTERNAL://:9092,HOST://:29092,CONTROLLER://:9093
+      KAFKA_ADVERTISED_LISTENERS: INTERNAL://kafka:9092,HOST://localhost:29092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: INTERNAL:PLAINTEXT,HOST:PLAINTEXT,CONTROLLER:PLAINTEXT
+      KAFKA_INTER_BROKER_LISTENER_NAME: INTERNAL
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@localhost:9093
+      # One broker: every internal topic has one copy.
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      # usage-events is created on first use with 3 partitions (one per consumer, at most).
+      KAFKA_NUM_PARTITIONS: 3
+    healthcheck:
+      test: ["CMD-SHELL", "/opt/kafka/bin/kafka-topics.sh --bootstrap-server localhost:9092 --list"]
+      interval: 5s
+      timeout: 10s
+      retries: 20
+
+  # Writes usage events from Kafka to PostgreSQL (design note 39).
+  usage-consumer:
+    build:
+      context: .
+      dockerfile: usage-consumer/Dockerfile
+    image: llm-gateway/usage-consumer:local
+    environment:
+      SPRING_PROFILES_ACTIVE: local   # made-up prices for the mock models
+      KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+      USAGE_DB_URL: jdbc:postgresql://postgres:5432/usage
+      USAGE_DB_USER: usage
+      USAGE_DB_PASSWORD: ${USAGE_DB_PASSWORD:-local-only}
+      JAVA_TOOL_OPTIONS: -Xmx256m
+    depends_on:
+      kafka:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_DB: usage
+      POSTGRES_USER: usage
+      # Not secrets: the database is reachable only inside the Compose network. Set
+      # USAGE_DB_PASSWORD and USAGE_DB_READER_PASSWORD anywhere else.
+      POSTGRES_PASSWORD: ${USAGE_DB_PASSWORD:-local-only}
+      USAGE_DB_READER_PASSWORD: ${USAGE_DB_READER_PASSWORD:-local-only-reader}
+    volumes:
+      - ./deploy/postgres/01-usage-reader.sh:/docker-entrypoint-initdb.d/01-usage-reader.sh:ro
+      - usage-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -h localhost -U usage -d usage"]
+      interval: 2s
+      timeout: 2s
+      retries: 30
+
+  # Collects metrics from each gateway directly (not through nginx) on their metrics port,
+  # which is not published to the host (design note 42).
+  prometheus:
+    image: prom/prometheus:v3.5.0
+    ports:
+      - "127.0.0.1:9090:9090"
+    volumes:
+      - ./deploy/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+
+  grafana:
+    image: grafana/grafana:12.1.1
+    ports:
+      - "127.0.0.1:3000:3000"
+    environment:
+      # Anyone on this machine may look; changing anything needs the admin password.
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Viewer
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-local-only}
+      GF_USERS_DEFAULT_THEME: dark   # the dashboard's colors are chosen for it
+      GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH: /etc/grafana/dashboards/llm-gateway.json
+      GF_ANALYTICS_REPORTING_ENABLED: "false"
+      GF_ANALYTICS_CHECK_FOR_UPDATES: "false"
+    volumes:
+      - ./deploy/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./deploy/grafana/dashboards:/etc/grafana/dashboards:ro
+
   # Hugging Face text-embeddings-inference on CPU with a small English model (384 dimensions).
   # Only for the (off by default) semantic cache layer and its evaluation, so it starts only
   # with --profile semantic or when named: docker compose up -d embeddings.
@@ -97,4 +197,5 @@ services:
       MOCK_MID_STREAM_FAILURE_RATE: ${MOCK_MID_STREAM_FAILURE_RATE:-0}
 
 volumes:
+  usage-data:
   embedding-models:

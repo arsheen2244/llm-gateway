@@ -143,6 +143,7 @@ public class ResilientExecutor implements ChatInterceptor.Chain {
                 }
 
                 attempts++;
+                context.trace().attempting(provider.name(), request.model());
                 MDC.put(LogFields.PROVIDER, provider.name());
                 MDC.put(LogFields.ATTEMPTS, String.valueOf(attempts));
                 try {

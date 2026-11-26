@@ -1254,3 +1254,361 @@ evaluation served 9 wrong answers for every 12 paraphrases.
 **Limits of this evaluation:** pairs are scored on their own (in the gateway the nearest of
 all cached prompts in the scope wins, so more entries mean more chances of a false hit); 200
 English, single-sentence prompts; one model.
+
+## 37. Usage events: one per request, recorded at the front of the chain
+
+**Where:** `UsageInterceptor`, order 50, ahead of rate limiting (100) and the cache (200). Being
+first means it sees every outcome: answers from a provider or from the cache, rate-limit
+refusals, provider failures, clients leaving mid-stream. Each request produces exactly one
+`UsageEvent`, published after the request is done to a `UsageSink`. Step 1 ships a sink that
+only logs at DEBUG; step 2 replaces it with Kafka (note 38).
+
+**What an event holds:** event ID (a random UUID), client id, model as requested, provider, the
+model that provider was sent (added in note 39), prompt and completion tokens, latency, cache outcome (`X-Cache`, or `none` if the request ended
+before the cache ran), status (`SUCCESS`, `RATE_LIMITED`, `PROVIDER_ERROR`,
+`CLIENT_DISCONNECTED`, `ERROR`), whether it was a stream, and when it finished.
+- **Client id, never the API key.** The key is a secret; the id already identifies the caller,
+  and `GET /v1/usage` looks usage up by the id the key maps to.
+- **Event ID made in the gateway.** It is what makes the consumer idempotent (note 39): a
+  redelivered event carries the same ID and is ignored.
+- **Tokens, not cost.** The consumer prices events from its `model_prices` table, so prices live
+  in one place and changing one needs no gateway redeploy. *Trade-off:* the brief lists cost as
+  an event field; it is stored on each event's row instead, not carried in the Kafka message.
+- **Which provider answered.** With failover (note 25) it can differ from the route's first
+  provider. The executor records each attempt's provider in a per-request `CallTrace` carried by
+  `ChatContext`; after a success, the latest attempt is the one that answered. Null when no
+  provider was called (rate-limited, cache hit).
+- **Tokens of a cache hit** are the cached answer's counts (what the client sees in `usage`),
+  with no provider; the consumer charges cache hits nothing.
+- **Streams** take tokens from the final usage chunk, which the gateway always requests from the
+  provider (note 12), even when the client didn't ask for it.
+
+**Never slows or fails a request:** publishing is wrapped so that a throwing sink is logged and
+ignored, and the client still gets its answer or its original error. The sink is called on the
+request thread, so it must return at once; the Kafka sink hands the event to the producer's
+buffer and returns (note 38).
+
+**Not recorded (limitations):**
+- Requests rejected before the pipeline (bad API key, invalid body, unknown model, no provider
+  configured): nothing was attempted, and no tokens were spent.
+- Tokens of a stream that broke or was abandoned before the usage chunk: recorded as 0, though
+  the provider may have billed part of it. (The rate limiter instead keeps its estimate in that
+  case, note 19: for limits, over-counting is the safe side; for billing, an invented number
+  is not.)
+
+## 38. Usage events to Kafka: a bounded memory buffer when Kafka is down
+
+**The rule from the brief:** sending usage must never slow or fail a request. **The owner's
+choice for Kafka outages:** keep unsent events in a bounded memory buffer and send them when
+Kafka is back; lose them only when the buffer fills or the instance dies, and count every loss.
+
+**How (`KafkaUsageSink`):**
+- `publish()` only offers the event to an `ArrayBlockingQueue` (100,000 events by default)
+  and returns. A request never touches the Kafka client. Each queued event is a small object
+  (a few hundred bytes, an estimate, not measured), so a full queue plus the 32 MB producer
+  buffer stays well inside the 384 MB heap each Compose instance has.
+- One background thread takes events from the queue and calls `producer.send()`. That call can
+  block (no metadata yet, producer buffer full) for up to `max.block.ms` = 10 s; only this thread
+  ever waits.
+- A send that fails with a *retriable* error (timeout, broker unavailable) goes back into the
+  queue and is sent again later. A *non-retriable* one (e.g. record too large) is dropped: sending
+  it again would fail forever.
+- Every loss increments `dropped()`, and is logged (the first, then every 1,000th). It is also the
+  `usage_events_dropped_total` metric (note 42).
+
+**Producer settings:** `acks=all` and idempotence on (once acknowledged, an event is durable,
+and the producer's own retries never write it twice); `linger.ms=5` and lz4 compression (small
+batches); a 32 MB producer buffer; `delivery.timeout.ms` 2 minutes, after which the send fails
+and the event goes back into the queue.
+
+**Duplicates are possible, on purpose.** A send that timed out may still have reached Kafka, and
+re-queueing it sends it again. The consumer stores each event ID once (note 39), so this costs
+nothing; a lost event, by contrast, could not be recovered. At-least-once delivery plus an
+idempotent consumer gives exactly-once *totals*.
+
+**Ordering:** events are keyed by client id, so one client's events share a partition. A
+re-queued event goes to the back of the queue, so order is not strict; nothing depends on it,
+since daily totals are sums.
+
+**Shutdown:** Spring closes the sink after the web server has stopped taking requests (beans are
+destroyed after the server's lifecycle stops). `close()` sends what is still queued for up to
+`shutdown-timeout` (5 s), closes the producer, and counts anything left as dropped.
+
+**Topic:** `usage-events`, created by the broker on first use with 3 partitions
+(`KAFKA_NUM_PARTITIONS` in Compose), enough for up to 3 consumers. A real deployment would create
+it explicitly with a replication factor of 3; Compose has one broker.
+
+**Options considered (the owner chose the first):**
+
+| Option | Kafka down for a while | Instance crash | Cost on the request path |
+|---|---|---|---|
+| **Memory buffer** (chosen) | Kept, up to the buffer size; then dropped and counted | Queued events lost | One queue offer |
+| Outbox table in PostgreSQL | Kept | Kept | A database write per request; PostgreSQL becomes a dependency of serving |
+| Drop | Lost and counted | Lost | One failed offer |
+
+**What this means in practice:** short outages lose nothing; an outage long enough to fill
+100,000 events per instance, or a crash, under-counts usage. Billing-grade accounting would
+need the outbox (or a disk spool), at the cost above.
+
+**Tests:** `KafkaUsageSinkTest` (Kafka's `MockProducer`: retry after a timeout, drop on a
+permanent error, full queue never blocks, shutdown); `KafkaUsageSinkBrokerTest` (a real broker
+in Testcontainers is paused: 200 events are published with no call taking 50 ms or more, and
+all of them arrive after it is unpaused); `KafkaDownIntegrationTest` (the whole gateway with no
+Kafka at all: requests succeed as usual).
+
+## 39. The usage consumer: at-least-once delivery, exactly-once totals
+
+**What it is:** `usage-consumer`, a separate service (the owner's choice). It scales and restarts
+independently, and a slow database or a crashed consumer can't touch request serving.
+*Rejected:* consuming inside each gateway; fewer services, but accounting would share CPU with
+requests, and stopping one means stopping the other.
+
+**Tables** (Flyway, `V1__usage.sql`): `usage_events` (one row per request, `event_id` is the
+primary key), `usage_daily` (totals per client and UTC day), `model_prices`.
+
+**Exactly-once totals.** Kafka may deliver an event more than once: the gateway re-sends after a
+timeout (note 38), and the consumer re-reads whatever it had not committed when it crashed. So,
+per event, in **one transaction**:
+1. `INSERT INTO usage_events ... ON CONFLICT (event_id) DO NOTHING`;
+2. only if that added a row, add the event to `usage_daily`.
+
+The Kafka offset is committed **after** the database commit (`ack-mode: record`):
+
+| Crash happens | What is left | After the restart |
+|---|---|---|
+| before the database commit | nothing (rolled back) | redelivered, recorded |
+| after the database commit, before the offset commit | recorded | redelivered, the insert conflicts, ignored |
+| after the offset commit | recorded | not redelivered |
+
+Two consumers holding the same event at once (a slow one that lost its partition) are safe too:
+the second insert waits for the first transaction, then conflicts.
+*Rejected:* committing the offset first (a crash loses the event); Kafka transactions (they cover
+Kafka topics, not a write to PostgreSQL); computing totals on every read with `SUM` over events
+(simplest, and always right, but a billing read would get slower as events pile up).
+
+**Errors:**
+- *PostgreSQL down, hanging or misconfigured:* the same event is tried again, every second, for
+  ever. Skipping it would lose it; waiting only adds delay, because Kafka keeps the events behind
+  it. A 10 s socket timeout turns a hang into an error that can be retried.
+- *The event itself is bad* (not a valid event, or PostgreSQL rejects its values): retrying can't
+  help and would block the partition for ever, so it goes to `usage-events-dlt` unchanged and is
+  logged. If that send fails, the event is tried again, not skipped. Example: a client may put a
+  NUL character in the model name, which PostgreSQL cannot store. Retrying that would let one
+  client stop accounting for everyone on the partition.
+
+**Cost** is worked out here, in exact decimals (`numeric`, `BigDecimal`), from the price in force
+when the event happened (`effective_from`), so re-reading old events after a price change gives the
+old price. Storing the cost on the event's row means later price changes don't rewrite history.
+- **Priced by provider and upstream model**, not the model the client asked for. After a failover
+  the provider may be sent (and bill) another model (note 25). Step 1's event recorded only the
+  requested model, which would have priced those requests wrongly; `upstreamModel` was added.
+- **No price known:** `cost_usd` is NULL and the day's `unpriced_requests` goes up. Never a silent $0.
+- **Cache hits** cost 0, and their tokens are counted in separate columns, so
+  `prompt_tokens` and `completion_tokens` are what providers processed.
+- Only made-up prices for the mock models are included (profile `local`). Real prices change and
+  must be checked against the provider, so none are committed; until they are added, real models
+  show up as unpriced.
+
+**The event format** is `contracts/usage-event.json`. The gateway tests that it writes exactly that,
+and the consumer that it reads it. Unknown fields are ignored, so the gateway can add one first.
+*Rejected:* a shared Java module (both services would have to be rebuilt together) and a schema
+registry (one more service, for one event type).
+
+**Kafka settings that matter:** `auto-offset-reset: earliest` (the default, `latest`, skips whatever
+was sent before the consumer first ran); 3 listener threads, one per partition.
+
+**Limitations:**
+- Kafka keeps events for 7 days by default; a consumer stopped for longer would lose some.
+- One transaction per event is simple, but one client's events share a partition and so are
+  recorded one at a time. If the consumer falls behind, recording a batch per transaction is the
+  next step. Step 7's load test measures this.
+- Only the attempt that answered is counted. Failed attempts, cancelled hedges (note 30) and
+  streams that broke before their usage chunk may have been billed by the provider.
+- Dead letters are kept but not replayed automatically.
+- `usage_events` grows without bound; a real deployment would partition it by month.
+
+**Tests:** `UsageListenerParseTest` and `ModelPriceTest` (no Docker); `UsageStoreTest` (PostgreSQL:
+redelivery, four threads recording the same events, rollback when the totals can't be updated,
+prices over time, UTC days); `UsageConsumerIntegrationTest` (Kafka and PostgreSQL: duplicates in
+random order, dead letters, PostgreSQL paused for 15 s); `scripts/check-usage.sh` (in CI, the Compose
+stack: 30 requests through nginx become exactly 30 priced events, and the totals match).
+
+## 40. GET /v1/usage: the calling key's usage, from the daily totals
+
+**What it returns:** requests (by outcome), cache hits, tokens and cost for the calling key, in total
+and per UTC day. `from` and `to` are optional dates, both included; the default is the last 30
+days and the limit 366. Days without usage are left out.
+
+**Whose usage:** only the authenticated key decides. There is no client parameter, so one client
+can't read another's numbers by changing the request.
+
+**Reads `usage_daily`, not `usage_events`:** at most 366 small rows by primary key, however many
+requests there were.
+
+**Where the gateway's database use stops:**
+- The connection pool is private to `JdbcUsageReader`, and Spring Boot's own `DataSource` is
+  excluded. Nothing on the chat path can use the database, and the gateway starts without it.
+- The pool is small (3), connects on first use, waits at most 2 s for a connection and 5 s for an
+  answer. A slow or missing database gives `503 usage_unavailable`; chat is unaffected.
+- It connects as `usage_reader`, which may only `SELECT` from `usage_daily`. Compose creates the role
+  with the database, and the consumer's migration grants it that one table. A gateway that is
+  broken into can't change or delete billing records.
+- *Rejected:* putting the endpoint in the usage consumer. The gateway would then not need the
+  database at all, but the consumer would need its own copy of API-key checking.
+
+**Cost is decimal text** (`"cost_usd": "0.000966"`). JSON numbers are usually parsed as doubles, which
+can't hold most decimal fractions exactly. `unpriced_requests` above 0 says the cost is incomplete.
+
+**Not rate-limited:** it spends no tokens, and the tiny pool bounds the load on the database. A
+client calling it in a loop can make other clients' usage calls slow or 503, but not chat.
+
+**Freshness:** events arrive through Kafka, so a request normally shows up shortly after it ends, and
+later if Kafka or the consumer is behind. The report is not a live counter to enforce limits with.
+
+**Tests:** `UsageReportsTest` (dates, exact sums); `UsageEndpointIntegrationTest` (the JSON, another
+client's usage can't be read, 401, 400); `UsageDatabaseDownIntegrationTest` (no database: 503 and chat
+works); `JdbcUsageReaderTest` (PostgreSQL with the consumer's migrations: ranges, what the role may
+not do, a paused database); `check-usage.sh` (in CI: the API's numbers equal the database's).
+
+## 41. Reconciliation: totals stay exact when the consumer is killed
+
+The claim in note 39 (nothing lost, nothing double-counted) is tested by killing the consumer, not
+by arguing. Two tests, because each shows something the other can't:
+
+**`ReconciliationTest`** (Kafka and PostgreSQL in containers, the consumer as its own JVM): 6,000
+events of every kind over 12 clients and 2 days, 600 of them sent twice, in random order. The
+consumer is killed with SIGKILL once a fifth is recorded, restarted, killed again past half, and
+restarted. Then every event ID must be stored exactly once, and all 11 totals of every client and
+day must equal sums the test makes itself, sharing no code with the store.
+- **SIGKILL, not a stop.** A normal stop lets Spring commit its offsets, which hides the case that
+  matters: recorded in PostgreSQL, not yet committed in Kafka.
+- **Run twice, with `ack-mode` `record` (production) and `batch`.** With `record` the gap between the
+  two commits is too short to hit on demand. `batch` commits after up to 500 events, and the test
+  asserts that at the kill fewer offsets were committed than events recorded, so redelivery
+  certainly happened. The totals are right because of the event-ID rule, not because the kill
+  was lucky. It also shows the rule doesn't depend on the ack mode.
+- **The kill must be partway:** the test fails if nothing or everything was recorded at that point.
+
+**`scripts/reconcile_usage.py`** (CI, the whole Compose stack): 900 real requests through nginx and the
+three gateways, half of them streams. The consumer is killed during the first 300, stays down for
+the next 300 (which must all succeed, with nothing recorded) and is started again for the last 300.
+What is expected comes from the clients' side: the number of answers, and the tokens reported in
+them. PostgreSQL and `GET /v1/usage` must match exactly, cost included.
+
+**What this does not show:** losses before Kafka. A gateway that crashes, or whose buffer overflows,
+loses the events it had not sent (note 38), and those requests are then missing from the totals.
+Kafka itself is never killed here; with one broker and no replication, losing its disk loses events.
+
+## 42. Metrics: one request timer, three gauges, a provisioned dashboard
+
+**One request metric, from the usage event.** `gateway_requests_seconds` is recorded from the same
+`UsageEvent` that accounting uses (note 37), so request rate, latency, error rate, rejections and cache
+hit rate come from one place and can't disagree with the bill. Tags: `status`, `provider`, `cache`,
+`stream`.
+- **Why not Spring's `http_server_requests`?** It sees HTTP statuses. A stream that breaks after it
+  started is still a 200 there, and cache hits look like any other request. It is exposed too, but
+  the dashboard doesn't use it.
+- **The model is not a tag.** Clients choose it and routes end in `*`, so one client could create
+  endless time series. Tokens and cost per model are in PostgreSQL, where that is no problem.
+- **Histogram buckets, not percentiles.** Percentiles of three gateways can't be combined (an average of
+  three p95s is not a p95); bucket counts can be added, and the percentile taken from the sum. The
+  price is precision: a percentile is interpolated inside its bucket. Step 7's numbers come from k6,
+  which measures each request, not from here.
+- **Rejections and errors exist at 0 from the start.** A series that first appears at 5 shows no
+  increase to Prometheus. Other combinations appear on first use, so a new provider's first
+  request can be missing from a rate (never from the totals).
+
+**Also:** `gateway_breaker_state` per provider (0 closed, 1 half-open, 2 open, so the maximum over
+gateways is the worst), and `usage_events_sent/dropped_total` and `usage_events_queued` (note 38).
+
+**A port of its own (9091).** Metrics name providers and show traffic, so they don't belong on the public
+port, and nginx, which forwards everything, can't expose them. Only `/actuator/prometheus` is on.
+Compose publishes Prometheus and Grafana to this machine only.
+*Rejected:* the public port with a deny rule in nginx: one forgotten rule away from being public.
+
+**Health checks are not exposed.** Spring's would report a gateway "down" when Redis is, although it keeps
+serving (note 22), and a load balancer would then take all three out.
+
+**The dashboard** is a file (`deploy/grafana/dashboards/llm-gateway.json`), loaded at startup and not
+editable in the browser, so what is reviewed is what runs. Grafana's `$__rate_interval` keeps rates
+right at every zoom. Error rate leaves rejections out of both sides; cache hit rate leaves bypassed
+requests out, since the cache was never asked.
+
+**Tests:** `RequestMetricsTest` (1,000 model names create no new series), `MetricsEndpointIntegrationTest`
+(the endpoint of a real gateway: counts, breaker state, and 404 on the public port), and
+`scripts/check_metrics.py` (CI, Compose): the counts in Prometheus must equal what the clients saw, and
+every panel's query is read from the dashboard file and must return data. So a renamed metric
+breaks the build, not the dashboard.
+
+**Limitations:**
+- The usage consumer exposes no metrics yet, so the dashboard can't show how far behind it is
+  (`kafka-consumer-groups.sh --describe` can).
+- No alerts are defined.
+- With `gateway.usage.enabled=false` there are no request metrics either.
+- Latency is recorded in whole milliseconds, so most cache hits show as 0 or 1 ms.
+
+## 43. Full-stack load test: 1,000 requests per second, and what limits it
+
+**Setup** (`load-test/full-stack.js`, `full_stack.sh`, workflow *Full-stack load test*): the whole
+Compose stack with every feature on (nginx, three gateways, Redis rate limits and cache, usage events
+through Kafka into PostgreSQL, Prometheus and Grafana), against the mock provider answering after
+a fixed 100 ms. Everything, k6 included, shares one GitHub runner with 4 vCPUs.
+- **Open model:** k6 starts requests at a fixed rate whatever the answers do. A closed model (a fixed
+  number of virtual users) slows down with the system under test and hides how far behind it falls.
+- **Each rate twice, one after the other:** 60 s straight to the mock, then 60 s through the gateways.
+  *Added latency* is a percentile through the gateways minus the same percentile straight to the
+  mock: a difference of percentiles, not a percentile of per-request differences.
+- **A rate counts as sustained only with no failed request and no request k6 had to skip** (it
+  ran out of virtual users because answers were too slow). Otherwise its latency isn't reported.
+- **Every prompt is new, at temperature 0:** the cache looks each one up and stores its answer, its
+  most expensive path. Non-streaming only.
+- **Accounting is checked at every rate:** each answer carrying a gateway's `X-Request-Id` must appear
+  in PostgreSQL. The script records how far behind the consumer was when the load stopped, and how
+  long it took to catch up.
+- **Three repetitions, each on its own runner**, because shared cloud machines vary (even the CPU model).
+
+**Results** (run 45755495967; runs 2 and 3, both AMD EPYC 7763; run 1 failed in setup, see below;
+raw data in `results/full-stack/`):
+
+| Rate | Failed | Added p50 | Added p95 | Added p99 | Consumer behind at end |
+|---|---|---|---|---|---|
+| 100/s | 0 / 0 | +3.3 / +3.7 ms | +8.7 / +8.8 ms | +12.9 / +13.7 ms | 0 / 0 |
+| 400/s | 0 / 0 | +4.3 / +4.2 ms | +19.5 / +21.7 ms | +45.8 / +47.9 ms | 0 / 0 |
+| 800/s | 0 / 0 | +8.2 / +7.1 ms | +39.0 / +21.1 ms | +93.3 / +35.1 ms | 18,022 / 16,936 |
+| 1,000/s | 0 / 0 | +15.2 / +15.3 ms | +53.7 / +55.5 ms | +93.5 / +84.7 ms | 34,608 / 34,565 |
+| 1,200/s | 163 / 0 failed, 18,543 / 64 skipped | not sustained | | | |
+
+- **Highest rate sustained: 1,000 requests per second** in both runs (60,000 and 60,001 requests,
+  none failed). At 1,200/s, run 2 fell apart (p99 14 s, 18,543 requests skipped) and run 3 skipped 64;
+  1,600 and 2,000 failed in both.
+- **Nothing was lost.** At every rate, in both runs, every request a gateway answered was recorded
+  in PostgreSQL exactly once. (At 1,600/s run 3 has 3 more events than answers: requests a gateway
+  received after k6 had given up waiting for them.)
+- **The usage consumer is the slowest part**, at 840–970 events per second while catching up
+  (measured from 600/s up), close to the 1,000/s limit. Above roughly 600/s it falls behind during the load and catches up
+  afterwards (36 s after a minute at 1,000/s). Requests are unaffected (that is the point of
+  the queue, notes 38–39), but `/v1/usage` is late by that much. Batching inserts (note 39) is the
+  next step if that matters.
+- **Added latency grows with load,** because all of it shares 4 vCPUs. At 100/s the whole stack
+  (nginx hop, auth, a Redis rate-limit script, a Redis cache lookup and store, usage event, metrics)
+  adds about 3–4 ms at p50. Week 1's 1–2 ms was the gateway alone, with none of those.
+- **Run to run, p50 agrees within about 1 ms; the tail varies more** (p99 at 800/s: 93 and 35 ms).
+  Two runs on one CPU model are not enough for tight error bars; the table shows both, not an
+  average.
+
+**What was wrong at first, and fixed:**
+- **nginx was the limit, not the gateway.** The first runs failed at about 1,000/s with connections
+  closed and HTML 500 pages, which the gateways never send. nginx ran with its defaults: one worker
+  process and 512 connections (counting those to the gateways), and it closed each client connection
+  after 1,000 requests, while the client might already be sending the next one. Now: one worker per
+  CPU, 8,192 connections each, and long-lived keep-alive.
+- **The accounting check counted nginx's own errors as gateway answers.** It now counts only answers
+  with `X-Request-Id`.
+- **One run tells you little.** The first runs, on different CPU models, differed by 2–3x in tail latency.
+- **Run 1 got a 502 from nginx before the measurement:** the smoke test had seen one gateway answer
+  and moved on while another was still starting. It now waits for six 200s in a row.
+
+**What this does not show:** real providers (whose seconds of latency dwarf these milliseconds),
+streams, cache hits, the semantic layer (off, note 36), more than one machine, or anything about
+what limits the stack at 1,200/s beyond the consumer's backlog. With every component on 4 shared
+vCPUs, which one runs out first was not measured.

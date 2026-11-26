@@ -51,6 +51,7 @@ class TwoGatewayInstancesTest {
         for (int i = 0; i < 2; i++) {
             ConfigurableApplicationContext context = new SpringApplicationBuilder(GatewayApplication.class).run(
                     "--server.port=0",
+                    "--management.server.port=-1",
                     "--spring.data.redis.url=" + redisUrl,
                     "--gateway.rate-limit.backend=redis",
                     "--gateway.rate-limit.instances=2",

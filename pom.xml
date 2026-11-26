@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!--
-  Parent POM. It holds the settings both modules share (Java version, Spring Boot
+  Parent POM. It holds the settings all modules share (Java version, Spring Boot
   version, plugin config). It produces no jar of its own (packaging = pom).
 -->
 <project xmlns="http://maven.apache.org/POM/4.0.0"
@@ -25,6 +25,7 @@
         <!-- mock-provider first: the gateway's tests depend on it -->
         <module>mock-provider</module>
         <module>gateway</module>
+        <module>usage-consumer</module>
     </modules>
 
     <properties>
